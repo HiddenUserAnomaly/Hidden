@@ -1,0 +1,262 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local player = Players.LocalPlayer
+
+local craftRemote = ReplicatedStorage
+	:WaitForChild("rbxts_include")
+	:WaitForChild("node_modules")
+	:WaitForChild("@rbxts")
+	:WaitForChild("net")
+	:WaitForChild("out")
+	:WaitForChild("_NetManaged")
+	:WaitForChild("CraftingEntityInteract")
+
+-- Flags for toggling potion scripts
+getgenv().SleepPotionEnabled = false
+getgenv().HealPotionEnabled = false
+
+-- Functions to find cauldrons and closest cauldron
+local function findAllCauldrons()
+	local cauldrons = {}
+	for _, obj in pairs(workspace:GetDescendants()) do
+		if obj:IsA("BasePart") and obj.Name == "brewing_cauldron" then
+			table.insert(cauldrons, obj)
+		end
+	end
+	return cauldrons
+end
+
+local function findClosestCauldron()
+	local cauldrons = findAllCauldrons()
+	local closest, shortest = nil, math.huge
+	local char = player.Character
+	if not char or not char.PrimaryPart then return nil end
+	local pos = char.PrimaryPart.Position
+
+	for _, cauldron in pairs(cauldrons) do
+		local dist = (cauldron.Position - pos).Magnitude
+		if dist < shortest then
+			shortest = dist
+			closest = cauldron
+		end
+	end
+	return closest
+end
+
+-- Inventory helpers
+local function getCorrectInventory()
+	local inventories = ReplicatedStorage:WaitForChild("Inventories")
+	local best, most = nil, 0
+	for _, folder in pairs(inventories:GetChildren()) do
+		if folder.Name == player.Name then
+			local count = #folder:GetChildren()
+			if count > most then
+				best = folder
+				most = count
+			end
+		end
+	end
+	return best
+end
+
+-- Mushroom helpers
+local function getMushroomCount()
+	local inv = getCorrectInventory()
+	if not inv then return 0 end
+	local mushrooms = inv:FindFirstChild("mushrooms")
+	if mushrooms then
+		local amount = mushrooms:GetAttribute("Amount")
+		return amount or 0
+	end
+	return 0
+end
+
+local function deductMushrooms(amountToDeduct)
+	local inv = getCorrectInventory()
+	if not inv then return end
+	local mushrooms = inv:FindFirstChild("mushrooms")
+	if mushrooms then
+		local currentAmount = mushrooms:GetAttribute("Amount") or 0
+		if currentAmount >= amountToDeduct then
+			mushrooms:SetAttribute("Amount", currentAmount - amountToDeduct)
+		end
+	end
+end
+
+local function depositMushroom()
+	local cauldron = findClosestCauldron()
+	if not cauldron then return end
+
+	local count = getMushroomCount()
+	if count < 1 then return end
+
+	local id = typeof(cauldron.GetAttribute) == "function" and cauldron:GetAttribute("id") or nil
+
+
+	craftRemote:FireServer({
+		craftingEntity = {
+			itemType = "brewing_cauldron",
+			position = cauldron.Position,
+			id = id,
+			owner = player,
+			craftingBlock = cauldron,
+		},
+		itemInHand = "mushrooms",
+		amount = 1,
+	})
+
+	deductMushrooms(1)
+end
+
+-- Wild flower helpers
+local function getWildFlowerCount()
+	local inv = getCorrectInventory()
+	if not inv then return 0 end
+	local flower = inv:FindFirstChild("wild_flower")
+	if flower then
+		local amount = flower:GetAttribute("Amount")
+		return amount or 0
+	end
+	return 0
+end
+
+local function deductWildFlower(amountToDeduct)
+	local inv = getCorrectInventory()
+	if not inv then return end
+	local flower = inv:FindFirstChild("wild_flower")
+	if flower then
+		local currentAmount = flower:GetAttribute("Amount") or 0
+		if currentAmount >= amountToDeduct then
+			flower:SetAttribute("Amount", currentAmount - amountToDeduct)
+		end
+	end
+end
+
+local function depositWildFlower()
+	local cauldron = findClosestCauldron()
+	if not cauldron then return end
+
+	local count = getWildFlowerCount()
+	if count < 1 then return end
+
+local id = typeof(cauldron.GetAttribute) == "function" and cauldron:GetAttribute("id") or nil
+
+
+	craftRemote:FireServer({
+		craftingEntity = {
+			itemType = "brewing_cauldron",
+			position = cauldron.Position,
+			id = id,
+			owner = player,
+			craftingBlock = cauldron,
+		},
+		itemInHand = "wild_flower",
+		amount = 1,
+	})
+
+	deductWildFlower(1)
+end
+
+-- GUI Setup with draggable frame
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "PotionToggleGui"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = player:WaitForChild("PlayerGui")
+
+local Frame = Instance.new("Frame")
+Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+Frame.Size = UDim2.new(0, 220, 0, 110)
+Frame.Position = UDim2.new(0, 20, 0, 20)
+Frame.Parent = ScreenGui
+Frame.Active = true
+Frame.Draggable = true
+
+local function createLabel(text, position)
+	local label = Instance.new("TextLabel")
+	label.BackgroundTransparency = 1
+	label.Size = UDim2.new(0, 200, 0, 40)
+	label.Position = position
+	label.Font = Enum.Font.SourceSansBold
+	label.TextSize = 20
+	label.TextColor3 = Color3.fromRGB(255, 255, 255)
+	label.Text = text
+	label.Parent = Frame
+	return label
+end
+
+local sleepLabel = createLabel("Sleep Potion: OFF (Home)", UDim2.new(0, 10, 0, 10))
+local healLabel = createLabel("Heal Potion: OFF (End)", UDim2.new(0, 10, 0, 60))
+
+local function updateLabels()
+	sleepLabel.Text = ("Sleep Potion: %s (Home)"):format(getgenv().SleepPotionEnabled and "ON" or "OFF")
+	healLabel.Text = ("Heal Potion: %s (End)"):format(getgenv().HealPotionEnabled and "ON" or "OFF")
+	sleepLabel.TextColor3 = getgenv().SleepPotionEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+	healLabel.TextColor3 = getgenv().HealPotionEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+end
+
+updateLabels()
+
+-- Input Handling for toggles
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+
+	if input.KeyCode == Enum.KeyCode.Home then
+		getgenv().SleepPotionEnabled = not getgenv().SleepPotionEnabled
+		updateLabels()
+	elseif input.KeyCode == Enum.KeyCode.End then
+		getgenv().HealPotionEnabled = not getgenv().HealPotionEnabled
+		updateLabels()
+	end
+end)
+
+-- Deposit loops
+task.spawn(function()
+	while true do
+		if getgenv().SleepPotionEnabled and getMushroomCount() >= 1 then
+			depositMushroom()
+		end
+		task.wait(0.75)
+	end
+end)
+
+task.spawn(function()
+	while true do
+		if getgenv().HealPotionEnabled and getWildFlowerCount() >= 1 then
+			depositWildFlower()
+		end
+		task.wait(0.75)
+	end
+end)
+
+-- Auto Collect Script (always on)
+local collectableNames = {
+	["Flower"] = true,
+	["Mushrooms"] = true,
+	["Thorns"] = true
+}
+
+task.spawn(function()
+	while true do
+		local descendants = workspace:GetDescendants()
+		for i = 1, #descendants do
+			local obj = descendants[i]
+			if obj:IsA("ProximityPrompt")
+				and obj.ActionText == "Collect"
+				and collectableNames[obj.ObjectText]
+			then
+				pcall(function()
+					obj.RequiresLineOfSight = false
+					obj.MaxActivationDistance = 17.3
+					obj.Style = Enum.ProximityPromptStyle.Custom
+				end)
+
+				task.defer(function()
+					obj:InputHoldBegin()
+					obj:InputHoldEnd()
+				end)
+			end
+		end
+		task.wait(0.07)
+	end
+end)

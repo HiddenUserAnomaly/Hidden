@@ -1,0 +1,113 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local player = Players.LocalPlayer
+
+local craftRemote = ReplicatedStorage
+	:WaitForChild("rbxts_include")
+	:WaitForChild("node_modules")
+	:WaitForChild("@rbxts")
+	:WaitForChild("net")
+	:WaitForChild("out")
+	:WaitForChild("_NetManaged")
+	:WaitForChild("CraftingEntityInteract")
+
+local function findAllCauldrons()
+	local cauldrons = {}
+	for _, obj in pairs(workspace:GetDescendants()) do
+		if obj:IsA("BasePart") and obj.Name == "brewing_cauldron" then
+			table.insert(cauldrons, obj)
+		end
+	end
+	return cauldrons
+end
+
+local function findClosestCauldron()
+	local cauldrons = findAllCauldrons()
+	local closest, shortest = nil, math.huge
+	local char = player.Character
+	if not char or not char.PrimaryPart then return nil end
+	local pos = char.PrimaryPart.Position
+
+	for _, cauldron in pairs(cauldrons) do
+		local dist = (cauldron.Position - pos).Magnitude
+		if dist < shortest then
+			shortest = dist
+			closest = cauldron
+		end
+	end
+	return closest
+end
+
+local function getCorrectInventory()
+	local inventories = ReplicatedStorage:WaitForChild("Inventories")
+	local best, most = nil, 0
+	for _, folder in pairs(inventories:GetChildren()) do
+		if folder.Name == player.Name then
+			local count = #folder:GetChildren()
+			if count > most then
+				best = folder
+				most = count
+			end
+		end
+	end
+	return best
+end
+
+local function getWildFlowerCount()
+	local inv = getCorrectInventory()
+	if not inv then return 0 end
+	local flower = inv:FindFirstChild("wild_flower")
+	if flower then
+		local amount = flower:GetAttribute("Amount")
+		return amount or 0
+	end
+	return 0
+end
+
+local function deductWildFlower(amountToDeduct)
+	local inv = getCorrectInventory()
+	if not inv then return end
+	local flower = inv:FindFirstChild("wild_flower")
+	if flower then
+		local currentAmount = flower:GetAttribute("Amount") or 0
+		if currentAmount >= amountToDeduct then
+			flower:SetAttribute("Amount", currentAmount - amountToDeduct)
+		end
+	end
+end
+
+local function depositWildFlower()
+	local cauldron = findClosestCauldron()
+	if not cauldron then return end
+
+	local count = getWildFlowerCount()
+	if count < 1 then return end -- Only deposit if at least 1
+
+	local id = nil
+	if cauldron.GetAttribute then
+		id = cauldron:GetAttribute("id")
+	end
+
+	craftRemote:FireServer({
+		craftingEntity = {
+			itemType = "brewing_cauldron",
+			position = cauldron.Position,
+			id = id,
+			owner = player,
+			craftingBlock = cauldron,
+		},
+		itemInHand = "wild_flower",
+		amount = 1,
+	})
+
+	deductWildFlower(1)
+end
+
+task.spawn(function()
+	while true do
+		if getWildFlowerCount() >= 1 then
+			depositWildFlower()
+		end
+		task.wait(0.75)
+	end
+end)

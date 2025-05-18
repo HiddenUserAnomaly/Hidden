@@ -253,15 +253,18 @@ end
 
 
 
-local sleepLabel = createLabel("Sleep Potion: OFF (-)", UDim2.new(0, 10, 0, 10))
-local healLabel = createLabel("Heal Potion: OFF (=)", UDim2.new(0, 10, 0, 60))
-local thornFlowerLabel = createLabel("Shield Potion: OFF (,)", UDim2.new(0, 10, 0, 110))
+local sleepLabel = createLabel("Sleep Potion: OFF (Minus)", UDim2.new(0, 10, 0, 10))
+local healLabel = createLabel("Heal Potion: OFF (Equals)", UDim2.new(0, 10, 0, 60))
+local thornFlowerLabel = createLabel("Shield Potion: OFF (Comma)", UDim2.new(0, 10, 0, 110))
+local poisonLabel = createLabel("Poison Potion: OFF (F10)", UDim2.new(0, 10, 0, 160))
+
 
 local function updateLabels()
-    sleepLabel.Text = ("Sleep Potion: %s (-)"):format(getgenv().SleepPotionEnabled and "ON" or "OFF")
-    healLabel.Text = ("Heal Potion: %s (=)"):format(getgenv().HealPotionEnabled and "ON" or "OFF")
-    thornFlowerLabel.Text = ("Shield Potion: %s (,)"):format(getgenv().ThornFlowerPotionEnabled and "ON" or "OFF")
-
+	sleepLabel.Text = ("Sleep Potion: %s (Minus)"):format(getgenv().SleepPotionEnabled and "ON" or "OFF")
+	healLabel.Text = ("Heal Potion: %s (Equals)"):format(getgenv().HealPotionEnabled and "ON" or "OFF")
+	thornFlowerLabel.Text = ("Shield Potion: %s (Comma)"):format(getgenv().ThornFlowerPotionEnabled and "ON" or "OFF")
+    poisonLabel.Text = ("Poison Potion: %s (F10)"):format(getgenv().PoisonPotionEnabled and "ON" or "OFF")
+    
     poisonLabel.TextColor3 = getgenv().PoisonPotionEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
 	sleepLabel.TextColor3 = getgenv().SleepPotionEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
 	healLabel.TextColor3 = getgenv().HealPotionEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
@@ -274,7 +277,7 @@ updateLabels()
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 
-	if input.KeyCode == Enum.KeyCode.Minus then  -- Sleep Potion
+	if input.KeyCode == Enum.KeyCode.Minus then
 		if not getgenv().SleepPotionEnabled then
 			getgenv().SleepPotionEnabled = true
 			getgenv().HealPotionEnabled = false
@@ -284,7 +287,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 			getgenv().SleepPotionEnabled = false
 		end
 
-	elseif input.KeyCode == Enum.KeyCode.Equals then  -- Heal Potion
+	elseif input.KeyCode == Enum.KeyCode.Equals then
 		if not getgenv().HealPotionEnabled then
 			getgenv().HealPotionEnabled = true
 			getgenv().SleepPotionEnabled = false
@@ -294,7 +297,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 			getgenv().HealPotionEnabled = false
 		end
 
-	elseif input.KeyCode == Enum.KeyCode.F10 then  -- Poison Potion (unchanged)
+	elseif input.KeyCode == Enum.KeyCode.F10 then
 		if not getgenv().PoisonPotionEnabled then
 			getgenv().PoisonPotionEnabled = true
 			getgenv().SleepPotionEnabled = false
@@ -304,7 +307,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 			getgenv().PoisonPotionEnabled = false
 		end
 
-	elseif input.KeyCode == Enum.KeyCode.Comma then  -- Shield Potion
+	elseif input.KeyCode == Enum.KeyCode.Comma then
 		if not getgenv().ThornFlowerPotionEnabled then
 			getgenv().ThornFlowerPotionEnabled = true
 			getgenv().SleepPotionEnabled = false
@@ -317,7 +320,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 
 	updateLabels()
 end)
-
 
 -- Deposit loops
 -- Sleep Potion

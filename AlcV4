@@ -472,7 +472,7 @@ task.spawn(function()
 			then
 				pcall(function()
 					obj.RequiresLineOfSight = false
-					obj.MaxActivationDistance = 17.3
+					obj.MaxActivationDistance = 17
 					obj.Style = Enum.ProximityPromptStyle.Custom
 				end)
 

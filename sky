@@ -1,0 +1,74 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local localPlayer = Players.LocalPlayer
+local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+local rootPart = character:WaitForChild("HumanoidRootPart")
+
+-- Get the remote
+local SkyScytheSpinRemote = ReplicatedStorage:WaitForChild("rbxts_include"):WaitForChild("node_modules"):WaitForChild("@rbxts"):WaitForChild("net"):WaitForChild("out"):WaitForChild("_NetManaged"):WaitForChild("SkyScytheSpin")
+
+-- Track nearby players to optimize spamming
+local nearbyPlayers = {}
+
+local function isPlayerValid(targetPlayer)
+    -- Dead check (no character or no Humanoid/Health)
+    if not targetPlayer.Character then return false end
+    local humanoid = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then return false end
+    
+    -- Team check (if teams are enabled)
+    if localPlayer.Team and targetPlayer.Team then
+        return localPlayer.Team ~= targetPlayer.Team  -- Only enemies
+    end
+    
+    return true  -- No teams = attack everyone
+end
+
+local function checkForNearbyPlayers()
+    if not rootPart or not rootPart.Parent then  -- Safety check
+        character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+        rootPart = character:WaitForChild("HumanoidRootPart")
+        return
+    end
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= localPlayer and player.Character then
+            local targetCharacter = player.Character
+            local humanoidRootPart = targetCharacter:FindFirstChild("HumanoidRootPart")
+            
+            if humanoidRootPart and isPlayerValid(player) then
+                local distance = (humanoidRootPart.Position - rootPart.Position).Magnitude
+                
+                -- If within 20 studs, SPAM SkyScytheSpin
+                if distance <= 20 then
+                    if not nearbyPlayers[player] then
+                        nearbyPlayers[player] = true
+                        -- Start spamming for this player
+                        coroutine.wrap(function()
+                            while nearbyPlayers[player] and task.wait(0.02) do
+                                SkyScytheSpinRemote:FireServer()
+                            end
+                        end)()
+                    end
+                else
+                    -- Player left 20 stud range, stop spamming
+                    if nearbyPlayers[player] then
+                        nearbyPlayers[player] = nil
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Run the check every frame
+RunService.Heartbeat:Connect(checkForNearbyPlayers)
+
+-- Cleanup if character dies
+localPlayer.CharacterAdded:Connect(function(newChar)
+    character = newChar
+    rootPart = newChar:WaitForChild("HumanoidRootPart")
+    nearbyPlayers = {}  -- Reset tracking
+end)

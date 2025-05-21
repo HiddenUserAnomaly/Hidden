@@ -1,0 +1,88 @@
+local player = game.Players.LocalPlayer
+local username = player.Name
+local hwid = gethwid and gethwid() or "Unknown-HWID"
+
+-- Pastebin URLs
+local hwidPastebinURL = "https://pastebin.com/raw/iH5CCB0U"
+local usernamePastebinURL = "https://pastebin.com/raw/GfVh9zpi"
+
+-- Your Discord webhook
+local webhookUrl = "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN"
+
+-- Safe HTTP request function (compatible with multiple executors)
+local requestFunc =
+    (http_request or request or syn and syn.request or fluxus and fluxus.request or getgenv().request)
+
+-- Notification (Roblox style)
+local function notify(title, text, duration)
+    pcall(function()
+        game.StarterGui:SetCore("SendNotification", {
+            Title = title,
+            Text = text,
+            Duration = duration or 3
+        })
+    end)
+end
+
+-- Fetch whitelist from pastebin
+local function fetchWhitelist(url)
+    local success, response = pcall(function()
+        return game:HttpGet(url, true)
+    end)
+
+    if not success then
+        warn("Failed to fetch whitelist from", url)
+        return {}
+    end
+
+    local list = {}
+    for line in response:gmatch("[^\r\n]+") do
+        list[line] = true
+    end
+    return list
+end
+
+-- Send to Discord webhook
+local function sendToWebhook(user, hwid)
+    if not requestFunc then
+        warn("Executor does not support HTTP requests.")
+        return
+    end
+
+    local data = {
+        embeds = {{
+            title = "🚫 Not Whitelisted Attempt",
+            color = 16711680,
+            fields = {
+                { name = "Username", value = user, inline = true },
+                { name = "HWID", value = hwid, inline = true },
+                { name = "Time", value = os.date("%Y-%m-%d %H:%M:%S"), inline = false },
+            },
+            footer = { text = "Whitelist Logger" }
+        }}
+    }
+
+    requestFunc({
+        Url = webhookUrl,
+        Method = "POST",
+        Headers = {
+            ["Content-Type"] = "application/json"
+        },
+        Body = game:GetService("HttpService"):JSONEncode(data)
+    })
+end
+
+-- Main logic
+local hwidWhitelist = fetchWhitelist(hwidPastebinURL)
+local usernameWhitelist = fetchWhitelist(usernamePastebinURL)
+
+if usernameWhitelist[username] or hwidWhitelist[hwid] then
+    notify("✅ Whitelisted", "Access granted.", 3)
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/HiddenUserAnomaly/Hidden/refs/heads/main/Terra", true))()
+else
+    setclipboard(hwid)
+    notify("❌ Not Whitelisted", "HWID copied to clipboard", 5)
+    sendToWebhook(username, hwid)
+    task.wait(1)
+    player:Kick("Not whitelisted\n(HWID copied to clipboard)")
+end

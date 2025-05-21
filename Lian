@@ -1,0 +1,120 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local localPlayer = Players.LocalPlayer
+local remotePath = ReplicatedStorage:WaitForChild("rbxts_include"):WaitForChild("node_modules"):WaitForChild("@rbxts"):WaitForChild("net"):WaitForChild("out"):WaitForChild("_NetManaged")
+local remoteEvent = remotePath:WaitForChild("DragonSwordFire")
+
+local function debugPrint(...)
+    if false then -- Change to true to enable debug prints
+        print(...)
+    end
+end
+
+local function getNearestPlayer()
+    -- Verify character exists
+    local character = localPlayer.Character
+    if not character then
+        debugPrint("No character found")
+        return nil
+    end
+    
+    -- Verify HumanoidRootPart exists
+    local humanoidRoot = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRoot then
+        debugPrint("No HumanoidRootPart found")
+        return nil
+    end
+
+    local myTeam = localPlayer.Team
+    local nearestPlayer = nil
+    local shortestDistance = math.huge
+
+    -- Find nearest player
+    for _, player in ipairs(Players:GetPlayers()) do
+        -- Skip self and teammates
+        if player == localPlayer or (myTeam and player.Team == myTeam) then
+            continue
+        end
+
+        if player.Character then
+            -- Skip dead players
+            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid and humanoid.Health > 0 then
+                local targetRoot = player.Character:FindFirstChild("HumanoidRootPart")
+                if targetRoot then
+                    local distance = (targetRoot.Position - humanoidRoot.Position).Magnitude
+                    debugPrint("Checking player:", player.Name, "Distance:", distance)
+                    if distance < shortestDistance then
+                        shortestDistance = distance
+                        nearestPlayer = player
+                    end
+                end
+            end
+        end
+    end
+
+    return nearestPlayer
+end
+
+local function fireAtNearest()
+    debugPrint("Attempting to fire...")
+    local nearestPlayer = getNearestPlayer()
+    
+    if nearestPlayer and nearestPlayer.Character then
+        debugPrint("Found target:", nearestPlayer.Name)
+        
+        local args = {
+            {
+                target = nearestPlayer.Character
+            }
+        }
+        
+        -- Verify remote event exists
+        if remoteEvent then
+            debugPrint("Firing remote event with args:", args)
+            remoteEvent:FireServer(unpack(args))
+        else
+            debugPrint("Remote event not found!")
+        end
+    else
+        debugPrint("No valid target found")
+    end
+end
+
+-- Connection cleanup variable
+local connection
+
+local function initialize()
+    -- Disconnect previous connection if exists
+    if connection then
+        connection:Disconnect()
+    end
+    
+    -- Set up new keybind
+    connection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if not gameProcessed then
+            if input.KeyCode == Enum.KeyCode.B then
+                fireAtNearest()
+            end
+        end
+    end)
+    
+    debugPrint("Keybind initialized - Press B to attack")
+end
+
+-- Reinitialize when character respawns
+localPlayer.CharacterAdded:Connect(function()
+    debugPrint("Character respawned, reinitializing...")
+    initialize()
+end)
+
+-- Initial setup
+if localPlayer.Character then
+    initialize()
+else
+    localPlayer.CharacterAdded:Wait()
+    initialize()
+end

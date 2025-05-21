@@ -3,6 +3,8 @@ local LocalPlayer = Players.LocalPlayer
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local Debris = game:GetService("Debris")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- **ULTRA-FAST TERRAIN-AWARE TRACKING**
 local Target = {
@@ -10,6 +12,7 @@ local Target = {
     head = nil,
     humanoid = nil,
     velocity = Vector3.new(0, 0, 0),
+    smoothedVelocity = Vector3.new(0, 0, 0),
     acceleration = Vector3.new(0, 0, 0),
     lastTerrainContact = 0,
     isGrounded = false,
@@ -21,35 +24,36 @@ local Target = {
 }
 
 -- **PHYSICS & PREDICTION SETTINGS**
-local BASE_PREDICTION = 0.18  -- Faster reaction time
-local MAX_PREDICTION = 0.35   -- For extreme-speed targets
+local BASE_PREDICTION = 0.18
+local MAX_PREDICTION = 0.35
 local GRAVITY = Workspace.Gravity
 local TERMINAL_VELOCITY = -120
-local JUMP_DETECTION_THRESHOLD = 15  -- Minimum Y-velocity to count as a jump
-local FAST_FALL_THRESHOLD = -40      -- Y-velocity for fast-fall detection
-local TERRAIN_ADAPTIVE_MULTIPLIER = 1.5  -- Extra prediction near terrain
+local JUMP_DETECTION_THRESHOLD = 15
+local FAST_FALL_THRESHOLD = -40
+local TERRAIN_ADAPTIVE_MULTIPLIER = 1.5
 
--- **INSTANT TRACKING VARIABLES**
-local lastProcessedFrame = 0
-local frameCount = 0
+-- **FIRE RATE LIMIT**
+local FIRE_COOLDOWN = 0.5
+local lastFireTime = 0
 
--- **Check if player is alive**
+-- **PING COMPENSATION SETTINGS**
+local ESTIMATED_PING = 0.12 -- 120ms default, update as needed
+local MAX_PING = 0.25
+local PING_VARIANCE_BUFFER = 0.05
+
+-- **UTILITY FUNCTIONS**
+
 local function isPlayerAlive(character)
     if not character then return false end
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     return humanoid and humanoid.Health > 0
 end
 
--- **Check if player is on the same team**
 local function isTeammate(player)
-    -- Check if game has team system
     if not LocalPlayer.Team then return false end
-    
-    -- Check if player is on the same team
     return player.Team == LocalPlayer.Team
 end
 
--- **Check if target is valid (alive and not teammate)**
 local function isValidTarget(character, player)
     if not character then return false end
     if not isPlayerAlive(character) then return false end
@@ -57,7 +61,6 @@ local function isValidTarget(character, player)
     return true
 end
 
--- **Find the best target (nearest enemy)**
 local function getOptimalTarget()
     local closest = nil
     local closestPlayer = nil
@@ -81,160 +84,180 @@ local function getOptimalTarget()
     return closest, closestPlayer
 end
 
--- **Check if target is touching terrain (for jump prediction)**
 local function isTouchingTerrain(position)
     local raycastParams = RaycastParams.new()
     raycastParams.FilterDescendantsInstances = {Workspace.Terrain}
     raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
     
     local raycastResult = Workspace:Raycast(
-        position + Vector3.new(0, 3, 0),  -- Start slightly above
-        Vector3.new(0, -10, 0),           -- Check 10 studs down
+        position + Vector3.new(0, 3, 0),
+        Vector3.new(0, -10, 0),
         raycastParams
     )
     
     return raycastResult and raycastResult.Instance and raycastResult.Instance:IsA("Terrain")
 end
 
--- **Analyze movement & terrain interaction**
 local function analyzeMovement()
     if not Target.rootPart then return end
     
-    -- **Update ground/jump status**
     local currentPos = Target.rootPart.Position
     Target.isGrounded = isTouchingTerrain(currentPos)
     
-    -- **Detect jumps & fast falls**
     if #Target.movementHistory >= 2 then
-        local yVelocity = (currentPos.Y - Target.movementHistory[#Target.movementHistory - 1].Y) * 60
+        local prevPos = Target.movementHistory[#Target.movementHistory - 1]
+        local deltaY = (currentPos.Y - prevPos.Y) * 60
         
-        -- **Jump detection**
-        if yVelocity > JUMP_DETECTION_THRESHOLD and Target.isGrounded then
+        -- Update velocity & smoothed velocity
+        local rawVelocity = (currentPos - prevPos) * 60
+        -- Simple smoothing for velocity
+        Target.smoothedVelocity = Target.smoothedVelocity:Lerp(rawVelocity, 0.25)
+        
+        -- Acceleration from velocity difference
+        if #Target.movementHistory >= 3 then
+            local prevVelocity = (Target.movementHistory[#Target.movementHistory - 1] - Target.movementHistory[#Target.movementHistory - 2]) * 60
+            Target.acceleration = (rawVelocity - prevVelocity) * 60
+        else
+            Target.acceleration = Vector3.new(0, 0, 0)
+        end
+
+        -- Jump detection
+        if deltaY > JUMP_DETECTION_THRESHOLD and Target.isGrounded then
             Target.isJumping = true
             Target.lastTerrainContact = os.clock()
         end
-        
-        -- **Fast-fall detection**
-        if yVelocity < FAST_FALL_THRESHOLD then
+
+        -- Fast fall detection
+        if deltaY < FAST_FALL_THRESHOLD then
             Target.isFastFalling = true
         else
             Target.isFastFalling = false
         end
-        
-        -- **Reset jump if landed**
+
+        -- Reset jump if landed
         if Target.isGrounded and os.clock() - Target.lastTerrainContact > 0.2 then
             Target.isJumping = false
         end
     end
 end
 
--- **Calculate INSTANT trajectory (accounts for terrain jumps & falls)**
-local function calculateInstantTrajectory(origin, targetPos)
-    local predictionTime = BASE_PREDICTION
-    
-    -- **Speed-adaptive prediction scaling**
-    local speedFactor = math.clamp(Target.velocity.Magnitude / 50, 1, 3)
-    predictionTime = math.min(BASE_PREDICTION * speedFactor, MAX_PREDICTION)
-    
-    -- **Extra prediction for jumps near terrain**
-    if Target.isJumping and Target.isGrounded then
-        predictionTime = predictionTime * TERRAIN_ADAPTIVE_MULTIPLIER
-    end
-    
-    -- **Fast-fall compensation**
-    if Target.isFastFalling then
-        predictionTime = predictionTime * 1.5
-    end
-    
-    -- **Predict future position**
-    local predictedPos = targetPos + (Target.velocity * predictionTime)
-    
-    -- **Gravity adjustment for falling targets**
-    if not Target.isGrounded and Target.velocity.Y < 0 then
-        predictedPos = predictedPos + Vector3.new(0, -0.5 * GRAVITY * predictionTime^2, 0)
-    end
-    
-    -- **Final direction with micro-adjustments**
-    local direction = (predictedPos - origin).Unit
-    
-    -- **Slight upward bias for headshots**
-    direction = direction + Vector3.new(0, 0.05, 0)
-    
-    return direction
-end
-
--- **FRAME-PERFECT TRACKING (runs every frame)**
+-- Main tracking update every frame
 RunService.Heartbeat:Connect(function()
-    frameCount = frameCount + 1
-    if frameCount <= lastProcessedFrame then return end
-    lastProcessedFrame = frameCount
-    
     local targetChar, targetPlayer = getOptimalTarget()
     if targetChar and targetChar.PrimaryPart and isValidTarget(targetChar, targetPlayer) then
-        -- **Record position history (for velocity & acceleration)**
         local currentPos = targetChar.PrimaryPart.Position
         table.insert(Target.movementHistory, currentPos)
         if #Target.movementHistory > 10 then
             table.remove(Target.movementHistory, 1)
         end
-        
-        -- **Calculate INSTANT velocity (1-frame difference)**
-        if #Target.movementHistory >= 2 then
-            Target.velocity = (Target.movementHistory[#Target.movementHistory] - 
-                             Target.movementHistory[#Target.movementHistory - 1]) * 60
-        end
-        
-        -- **Update target references**
+
         Target.rootPart = targetChar.PrimaryPart
         Target.head = targetChar:FindFirstChild("Head")
         Target.humanoid = targetChar:FindFirstChildOfClass("Humanoid")
-        
-        -- **Analyze movement & terrain interaction**
+
         analyzeMovement()
-        
         Target.lastMovementUpdate = os.clock()
     else
-        -- **Reset if no valid target**
+        -- Reset target info
         Target.rootPart = nil
         Target.head = nil
         Target.humanoid = nil
         Target.movementHistory = {}
+        Target.velocity = Vector3.new(0,0,0)
+        Target.smoothedVelocity = Vector3.new(0,0,0)
+        Target.acceleration = Vector3.new(0,0,0)
+        Target.isJumping = false
+        Target.isFastFalling = false
+        Target.isGrounded = false
     end
 end)
 
--- **INSTANT HIT FUNCTION (B key press)**
+-- User input for firing
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if input.KeyCode == Enum.KeyCode.B and not gameProcessed then
+        local now = os.clock()
+        if now - lastFireTime < FIRE_COOLDOWN then return end
+        lastFireTime = now
+
         if Target.rootPart and Target.head and isPlayerAlive(LocalPlayer.Character) then
-            -- **Double-check target validity before shooting**
             local currentTargetChar, currentTargetPlayer = getOptimalTarget()
             if currentTargetChar and currentTargetPlayer and isValidTarget(currentTargetChar, currentTargetPlayer) then
-                -- **Calculate PERFECT trajectory**
-                local perfectDirection = calculateInstantTrajectory(
-                    Target.rootPart.Position,
-                    Target.head.Position
+
+                -- Decide between head/body targeting
+                local targetPart = Target.head
+                local isBodyTargeting = false
+                if Target.isJumping or Target.isFastFalling or Target.acceleration.Magnitude > 70 then
+                    targetPart = Target.rootPart
+                    isBodyTargeting = true
+                end
+
+                -- Prediction time including ping compensation
+                local basePrediction = BASE_PREDICTION * math.clamp(Target.smoothedVelocity.Magnitude / 50, 1, 3)
+                local predictionTime = math.clamp(
+                    basePrediction + ESTIMATED_PING + PING_VARIANCE_BUFFER,
+                    BASE_PREDICTION,
+                    MAX_PREDICTION + MAX_PING
                 )
-                
-                -- **Dynamic hit parameters**
-                local hitRadius = 0.7
-                if Target.isJumping then hitRadius = 1.2 end
-                if Target.isFastFalling then hitRadius = 1.5 end
-                
+                if Target.isJumping then predictionTime = predictionTime * TERRAIN_ADAPTIVE_MULTIPLIER end
+                if Target.isFastFalling then predictionTime = predictionTime * 1.5 end
+                if Target.acceleration.Magnitude > 100 then predictionTime = predictionTime * 1.25 end
+
+                -- Predicted position
+                local predictedPos = targetPart.Position + Target.smoothedVelocity * predictionTime
+                if not Target.isGrounded and Target.velocity.Y < 0 then
+                    predictedPos = predictedPos + Vector3.new(0, -0.5 * GRAVITY * predictionTime ^ 2, 0)
+                end
+
+                -- Adaptive recoil (aim wobble)
+                local recoilStrength = 0
+                if ESTIMATED_PING > 0.12 then recoilStrength = recoilStrength + 0.02 end
+                if Target.acceleration.Magnitude > 100 then recoilStrength = recoilStrength + 0.015 end
+
+                local recoilOffset = Vector3.new(
+                    (math.random() - 0.5) * recoilStrength,
+                    (math.random() - 0.5) * recoilStrength,
+                    (math.random() - 0.5) * recoilStrength
+                )
+
+                local direction = (predictedPos - Target.rootPart.Position).Unit + recoilOffset
+                direction = direction.Unit + Vector3.new(0, 0.05, 0) -- Slight upward bias
+                direction = direction.Unit
+
+                -- Adaptive hit radius
+                local hitRadius = 0.6
+                if Target.isJumping then hitRadius = 1.0 end
+                if Target.isFastFalling then hitRadius = 1.3 end
+                if isBodyTargeting then hitRadius = hitRadius + 0.25 end
+                if ESTIMATED_PING > 0.15 then hitRadius = hitRadius + 0.2 end
+                if Target.acceleration.Magnitude > 100 then hitRadius = hitRadius + 0.1 end
+
+                -- Visual marker for predicted spawn position
+                local marker = Instance.new("Part")
+                marker.Size = Vector3.new(0.8, 0.8, 0.8)
+                marker.Position = predictedPos
+                marker.Anchored = true
+                marker.CanCollide = false
+                marker.Material = Enum.Material.Neon
+                marker.Shape = Enum.PartType.Ball
+                marker.Color = Color3.fromRGB(255, 100, 100)
+                marker.Parent = Workspace
+                Debris:AddItem(marker, 1.5)
+
+                -- Fire the remote with predicted position and params
                 local args = {
                     {
-                        direction = perfectDirection,
+                        direction = direction,
                         blockType = "obsidian",
-                        originPosition = Target.rootPart.Position,
+                        originPosition = predictedPos,
                         hitRadius = hitRadius,
                         isJumping = Target.isJumping,
                         isFastFalling = Target.isFastFalling,
                         timestamp = os.clock()
                     }
                 }
-                
-                -- **Fire with guaranteed hit**
+
                 pcall(function()
-                    game:GetService("ReplicatedStorage").rbxts_include.node_modules["@rbxts"].net.out._NetManaged.TryBlockKick:FireServer(unpack(args))
+                    ReplicatedStorage.rbxts_include.node_modules["@rbxts"].net.out._NetManaged.TryBlockKick:FireServer(unpack(args))
                 end)
             end
         end

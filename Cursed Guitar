@@ -1,0 +1,77 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local localPlayer = Players.LocalPlayer
+local remote = ReplicatedStorage:WaitForChild("rbxts_include"):WaitForChild("node_modules"):WaitForChild("@rbxts"):WaitForChild("net"):WaitForChild("out"):WaitForChild("_NetManaged"):WaitForChild("PlayGlitchGuitar")
+
+-- Configuration
+local MAX_DISTANCE = 25 -- Studs
+local ATTACK_DELAY = 0.02 -- Seconds (50ms between checks)
+
+local function findNearestEnemy()
+    if not localPlayer.Character then return nil end
+
+    local localRoot = localPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local localHumanoid = localPlayer.Character:FindFirstChildOfClass("Humanoid")
+    local localTeam = localPlayer.Team
+
+    if not localRoot or not localHumanoid or localHumanoid.Health <= 0 then return nil end
+
+    local closestEnemy = nil
+    local closestDistance = MAX_DISTANCE
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= localPlayer and player.Character then
+            local character = player.Character
+            local enemyRoot = character:FindFirstChild("HumanoidRootPart")
+            local enemyHumanoid = character:FindFirstChildOfClass("Humanoid")
+
+            if enemyRoot and enemyHumanoid and enemyHumanoid.Health > 0 then
+                local isEnemy = not localTeam or not player.Team or (player.Team ~= localTeam)
+                if isEnemy then
+                    local distance = (enemyRoot.Position - localRoot.Position).Magnitude
+                    if distance < closestDistance then
+                        closestDistance = distance
+                        closestEnemy = character
+                    end
+                end
+            end
+        end
+    end
+
+    return closestEnemy
+end
+
+-- Optimized attack loop with 0.05s delay
+local function rapidAttackLoop()
+    while true do
+        local target = findNearestEnemy()
+        if target then
+            local args = { { targets = { target } } }
+            remote:FireServer(unpack(args))
+        end
+        task.wait(ATTACK_DELAY) -- Ultra-fast 0.05s delay
+    end
+end
+
+-- Heartbeat-based alternative (more stable for fast loops)
+--[[
+local function heartbeatAttack()
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        local target = findNearestEnemy()
+        if target then
+            local args = { { targets = { target } } }
+            remote:FireServer(unpack(args))
+        end
+    end)
+    return connection -- Store to disconnect later
+end
+
+local attackConnection = heartbeatAttack()
+-- To stop: attackConnection:Disconnect()
+]]
+
+-- Start the rapid loop
+rapidAttackLoop()

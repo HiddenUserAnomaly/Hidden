@@ -6,8 +6,9 @@ local localPlayer = Players.LocalPlayer
 local remote = ReplicatedStorage:WaitForChild("rbxts_include"):WaitForChild("node_modules"):WaitForChild("@rbxts"):WaitForChild("net"):WaitForChild("out"):WaitForChild("_NetManaged"):WaitForChild("PlayGlitchGuitar")
 
 -- Configuration
-local MAX_DISTANCE = 25 -- Studs
+local MAX_DISTANCE = 35 -- Studs (includes vertical distance)
 local ATTACK_DELAY = 0.02 -- Seconds (50ms between checks)
+local INCLUDE_VERTICAL = true -- Set to false if you only want horizontal distance
 
 local function findNearestEnemy()
     if not localPlayer.Character then return nil end
@@ -30,7 +31,12 @@ local function findNearestEnemy()
             if enemyRoot and enemyHumanoid and enemyHumanoid.Health > 0 then
                 local isEnemy = not localTeam or not player.Team or (player.Team ~= localTeam)
                 if isEnemy then
-                    local distance = (enemyRoot.Position - localRoot.Position).Magnitude
+                    -- Calculate distance (including vertical if enabled)
+                    local offset = enemyRoot.Position - localRoot.Position
+                    local distance = if INCLUDE_VERTICAL 
+                        then offset.Magnitude  -- Full 3D distance
+                        else Vector3.new(offset.X, 0, offset.Z).Magnitude  -- Horizontal only
+                    
                     if distance < closestDistance then
                         closestDistance = distance
                         closestEnemy = character
@@ -43,35 +49,53 @@ local function findNearestEnemy()
     return closestEnemy
 end
 
--- Optimized attack loop with 0.05s delay
-local function rapidAttackLoop()
-    while true do
-        local target = findNearestEnemy()
-        if target then
-            local args = { { targets = { target } } }
-            remote:FireServer(unpack(args))
+-- Attack all valid targets in range (not just nearest)
+local function attackAllInRange()
+    if not localPlayer.Character then return end
+
+    local localRoot = localPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local localHumanoid = localPlayer.Character:FindFirstChildOfClass("Humanoid")
+    local localTeam = localPlayer.Team
+
+    if not localRoot or not localHumanoid or localHumanoid.Health <= 0 then return end
+
+    local targets = {}
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= localPlayer and player.Character then
+            local character = player.Character
+            local enemyRoot = character:FindFirstChild("HumanoidRootPart")
+            local enemyHumanoid = character:FindFirstChildOfClass("Humanoid")
+
+            if enemyRoot and enemyHumanoid and enemyHumanoid.Health > 0 then
+                local isEnemy = not localTeam or not player.Team or (player.Team ~= localTeam)
+                if isEnemy then
+                    local offset = enemyRoot.Position - localRoot.Position
+                    local distance = if INCLUDE_VERTICAL 
+                        then offset.Magnitude
+                        else Vector3.new(offset.X, 0, offset.Z).Magnitude
+                    
+                    if distance <= MAX_DISTANCE then
+                        table.insert(targets, character)
+                    end
+                end
+            end
         end
-        task.wait(ATTACK_DELAY) -- Ultra-fast 0.05s delay
+    end
+
+    if #targets > 0 then
+        local args = { { targets = targets } }
+        remote:FireServer(unpack(args))
     end
 end
 
--- Heartbeat-based alternative (more stable for fast loops)
---[[
-local function heartbeatAttack()
-    local connection
-    connection = RunService.Heartbeat:Connect(function()
-        local target = findNearestEnemy()
-        if target then
-            local args = { { targets = { target } } }
-            remote:FireServer(unpack(args))
-        end
-    end)
-    return connection -- Store to disconnect later
+-- Optimized attack loop that hits through walls and all targets in range
+local function rapidAttackLoop()
+    while true do
+        attackAllInRange()
+        task.wait(ATTACK_DELAY)
+    end
 end
-
-local attackConnection = heartbeatAttack()
--- To stop: attackConnection:Disconnect()
-]]
 
 -- Start the rapid loop
 rapidAttackLoop()

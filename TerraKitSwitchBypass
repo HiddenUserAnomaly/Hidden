@@ -1,0 +1,6 @@
+local args = {
+	{
+		kit = "block_kicker"
+	}
+}
+game:GetService("ReplicatedStorage"):WaitForChild("rbxts_include"):WaitForChild("node_modules"):WaitForChild("@rbxts"):WaitForChild("net"):WaitForChild("out"):WaitForChild("_NetManaged"):WaitForChild("BedwarsActivateKit"):InvokeServer(unpack(args))

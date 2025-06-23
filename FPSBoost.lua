@@ -1,4 +1,4 @@
--- ✅ Arceus X Neo Optimized FPS Boost (No Avatar Removal, No Lag Spike)
+-- ✅ FINAL ULTRA-LIGHT VERSION: One-time cleanup, safe loop, no avatar deletion, no lag spikes
 
 if setfpscap then setfpscap(165) end
 
@@ -15,7 +15,6 @@ pcall(function()
     hookfunction(HttpService.GetAsync, function() return nil end)
     hookfunction(HttpService.PostAsync, function() return nil end)
     hookfunction(HttpService.RequestAsync, function() return nil end)
-
     for _, service in ipairs({HttpService, AnalyticsService, LogService}) do
         for key, func in pairs(getmetatable(service)) do
             if typeof(func) == "function" then
@@ -25,9 +24,8 @@ pcall(function()
     end
 end)
 
--- 🚀 FPS Boost Core
-local function fpsBoost()
-    -- Lighting
+-- 🚀 One-Time FPS Boost (no loop)
+local function fpsBoostOnce()
     Lighting.GlobalShadows = false
     Lighting.FogEnd = math.huge
     Lighting.Brightness = 1
@@ -42,7 +40,6 @@ local function fpsBoost()
         end
     end
 
-    -- Terrain
     if Terrain then
         Terrain.WaterWaveSize = 0
         Terrain.WaterWaveSpeed = 0
@@ -50,7 +47,6 @@ local function fpsBoost()
         Terrain.WaterTransparency = 1
     end
 
-    -- Workspace cleanup
     for _, obj in pairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") then
             obj.Material = Enum.Material.SmoothPlastic
@@ -60,13 +56,6 @@ local function fpsBoost()
             obj.Transparency = 1
         elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") or obj:IsA("Fire") or obj:IsA("Smoke") then
             obj.Enabled = false
-            if obj:IsA("ParticleEmitter") then
-                obj.Lifetime = NumberRange.new(0)
-                obj.Rate = 0
-                obj.Size = NumberSequence.new(0)
-                obj.Transparency = NumberSequence.new(1)
-                obj.Speed = NumberRange.new(0)
-            end
         elseif obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
             obj.Enabled = false
         elseif obj:IsA("MeshPart") then
@@ -76,22 +65,20 @@ local function fpsBoost()
         end
     end
 
-    -- ViewportFrames (UI 3D rendering)
     for _, obj in pairs(game:GetDescendants()) do
         if obj:IsA("ViewportFrame") then
             obj:Destroy()
         end
     end
 
-    -- Lower quality setting
     pcall(function()
         settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
     end)
 end
 
--- 💥 Explosion Reducer
-local function reduceExplosions()
-    for _, obj in ipairs(workspace:GetDescendants()) do
+-- 💥 Lightweight explosion handler
+local function setupExplosionHook()
+    workspace.DescendantAdded:Connect(function(obj)
         if obj:IsA("Explosion") then
             pcall(function()
                 obj.BlastPressure = 0
@@ -99,10 +86,10 @@ local function reduceExplosions()
                 obj.DestroyJointRadiusPercent = 0
             end)
         end
-    end
+    end)
 end
 
--- 🔇 Disable camera shake
+-- 🔇 Stop camera shake
 local function blockCameraShake()
     local cam = workspace:FindFirstChildOfClass("Camera")
     if cam then
@@ -111,30 +98,17 @@ local function blockCameraShake()
     end
 end
 
--- 🧠 Hook for future explosions
-workspace.DescendantAdded:Connect(function(obj)
-    if obj:IsA("Explosion") then
-        pcall(function()
-            obj.BlastPressure = 0
-            obj.BlastRadius = 1
-            obj.DestroyJointRadiusPercent = 0
-        end)
-    end
-end)
-
--- 🚀 Initial optimization
-fpsBoost()
-reduceExplosions()
+-- ✅ One-time run
+fpsBoostOnce()
+setupExplosionHook()
 blockCameraShake()
 
--- 🔁 Lightweight loop every 10s using task.defer (minimizes lag)
+-- 🔁 Only loop camera shake (very lightweight)
 task.spawn(function()
     while true do
-        task.defer(fpsBoost)
-        task.defer(reduceExplosions)
-        task.defer(blockCameraShake)
-        wait(10)
+        blockCameraShake()
+        wait(5)
     end
 end)
 
-print("[+] Optimized FPS Boost Enabled ✅ | Hats & Clothing KEPT | No Lag Spikes")
+print("[+] FPS Boost (One-Time), No Hat Removal, No Lag Spikes ✅")

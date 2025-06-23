@@ -1,6 +1,6 @@
--- ✅ Arceus X Neo - Full FPS Boost, Telemetry Block, Explosion & Screen Shake Reducer
+-- ✅ Arceus X Neo Optimized FPS Boost (No Avatar Removal, No Lag Spike)
 
-if setfpscap then setfpscap(165) end -- Optional FPS cap if supported
+if setfpscap then setfpscap(165) end
 
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
@@ -9,7 +9,7 @@ local HttpService = game:GetService("HttpService")
 local AnalyticsService = game:GetService("AnalyticsService")
 local LogService = game:GetService("LogService")
 
--- 🔒 Disable telemetry functions
+-- 🔒 Disable telemetry
 pcall(function()
     HttpService.HttpEnabled = false
     hookfunction(HttpService.GetAsync, function() return nil end)
@@ -25,9 +25,9 @@ pcall(function()
     end
 end)
 
--- 🚀 FPS Boost Function
+-- 🚀 FPS Boost Core
 local function fpsBoost()
-    -- Lighting Cleanup
+    -- Lighting
     Lighting.GlobalShadows = false
     Lighting.FogEnd = math.huge
     Lighting.Brightness = 1
@@ -35,13 +35,14 @@ local function fpsBoost()
     Lighting.EnvironmentSpecularScale = 0
     Lighting.OutdoorAmbient = Color3.new(0.5, 0.5, 0.5)
     Lighting.Ambient = Color3.new(0.5, 0.5, 0.5)
+
     for _, effect in ipairs(Lighting:GetChildren()) do
         if effect:IsA("BlurEffect") or effect:IsA("SunRaysEffect") or effect:IsA("BloomEffect") or effect:IsA("ColorCorrectionEffect") then
             effect.Enabled = false
         end
     end
 
-    -- Terrain Optimization
+    -- Terrain
     if Terrain then
         Terrain.WaterWaveSize = 0
         Terrain.WaterWaveSpeed = 0
@@ -49,7 +50,7 @@ local function fpsBoost()
         Terrain.WaterTransparency = 1
     end
 
-    -- Workspace Visual Cleanup
+    -- Workspace cleanup
     for _, obj in pairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") then
             obj.Material = Enum.Material.SmoothPlastic
@@ -75,25 +76,14 @@ local function fpsBoost()
         end
     end
 
-    -- Character Cleanup
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player.Character then
-            for _, obj in pairs(player.Character:GetDescendants()) do
-                if obj:IsA("Accessory") or obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Decal") then
-                    obj:Destroy()
-                end
-            end
-        end
-    end
-
-    -- ViewportFrames in UI
+    -- ViewportFrames (UI 3D rendering)
     for _, obj in pairs(game:GetDescendants()) do
         if obj:IsA("ViewportFrame") then
             obj:Destroy()
         end
     end
 
-    -- Lower graphics quality (optional)
+    -- Lower quality setting
     pcall(function()
         settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
     end)
@@ -112,16 +102,16 @@ local function reduceExplosions()
     end
 end
 
--- 📉 Screen Shake Blocker (Camera manipulation prevention)
+-- 🔇 Disable camera shake
 local function blockCameraShake()
     local cam = workspace:FindFirstChildOfClass("Camera")
     if cam then
-        cam.CameraSubject = Players.LocalPlayer.Character or cam.CameraSubject
         cam.CameraType = Enum.CameraType.Custom
+        cam.CameraSubject = Players.LocalPlayer.Character or cam.CameraSubject
     end
 end
 
--- Live hook for future explosions
+-- 🧠 Hook for future explosions
 workspace.DescendantAdded:Connect(function(obj)
     if obj:IsA("Explosion") then
         pcall(function()
@@ -132,19 +122,19 @@ workspace.DescendantAdded:Connect(function(obj)
     end
 end)
 
--- 🚀 Initial Boost
+-- 🚀 Initial optimization
 fpsBoost()
 reduceExplosions()
 blockCameraShake()
 
--- 🔁 Loop every 10 seconds to maintain performance
+-- 🔁 Lightweight loop every 10s using task.defer (minimizes lag)
 task.spawn(function()
     while true do
-        fpsBoost()
-        reduceExplosions()
-        blockCameraShake()
-        task.wait(10)
+        task.defer(fpsBoost)
+        task.defer(reduceExplosions)
+        task.defer(blockCameraShake)
+        wait(10)
     end
 end)
 
-print("[+] Full FPS Boost, Telemetry Block, and Explosion Reduction Active ✅")
+print("[+] Optimized FPS Boost Enabled ✅ | Hats & Clothing KEPT | No Lag Spikes")

@@ -1,0 +1,17 @@
+local RunService = game:GetService("RunService")
+
+local pinata = workspace:WaitForChild("Map"):WaitForChild("Worlds"):WaitForChild("tr_Range"):WaitForChild("Blocks"):WaitForChild("pinata")
+local DepositCoins = game:GetService("ReplicatedStorage"):WaitForChild("rbxts_include"):WaitForChild("node_modules"):WaitForChild("@rbxts"):WaitForChild("net"):WaitForChild("out"):WaitForChild("_NetManaged"):WaitForChild("DepositCoins")
+
+local args = {pinata}
+local timer = 0
+
+RunService.Heartbeat:Connect(function(deltaTime)
+    timer = timer + deltaTime
+    if timer >= 0.25 then
+        timer = 0
+        pcall(function()
+            DepositCoins:InvokeServer(unpack(args))
+        end)
+    end
+end)

@@ -1,37 +1,37 @@
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+-- Cache everything
 local DepositCoins = ReplicatedStorage:WaitForChild("rbxts_include"):WaitForChild("node_modules"):WaitForChild("@rbxts"):WaitForChild("net"):WaitForChild("out"):WaitForChild("_NetManaged"):WaitForChild("DepositCoins")
+local BlocksFolder = workspace:WaitForChild("Map"):WaitForChild("Worlds"):WaitForChild("tr_Range"):WaitForChild("Blocks")
 
 local timer = 0
+local currentPinata = BlocksFolder:FindFirstChild("pinata")
 
--- Safe function to find the pinata
-local function findPinata()
-    local success, result = pcall(function()
-        local map = workspace:FindFirstChild("Map")
-        if not map then return nil end
-        
-        local worlds = map:FindFirstChild("Worlds")
-        if not worlds then return nil end
-        
-        local tr_Range = worlds:FindFirstChild("tr_Range")
-        if not tr_Range then return nil end
-        
-        local blocks = tr_Range:FindFirstChild("Blocks")
-        if not blocks then return nil end
-        
-        return blocks:FindFirstChild("pinata")
-    end)
-    
-    return success and result or nil
+-- Set up event listener for new pinatas
+local function onChildAdded(child)
+    if child.Name == "pinata" then
+        currentPinata = child
+    end
 end
 
+BlocksFolder.ChildAdded:Connect(onChildAdded)
+
+-- Handle pinata removal
+local function onChildRemoved(child)
+    if child == currentPinata then
+        currentPinata = nil
+    end
+end
+
+BlocksFolder.ChildRemoved:Connect(onChildRemoved)
+
+-- Main loop - now only does the InvokeServer call
 RunService.Heartbeat:Connect(function(deltaTime)
     timer = timer + deltaTime
     if timer >= 0.25 then
         timer = 0
         
-        local currentPinata = findPinata()
         if currentPinata then
             local args = {currentPinata}
             pcall(function()

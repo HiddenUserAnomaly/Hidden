@@ -1,487 +1,1066 @@
--- Services
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
-local player = Players.LocalPlayer
+local WhitelistURL =
+    'https://raw.githubusercontent.com/HiddenUserAnomaly/Hidden/refs/heads/main/Whitelist'
+local Players = game:GetService('Players')
+local localPlayer = Players.LocalPlayer
+local username = localPlayer.Name
 
--- Settings
-local depositInterval = 0.3
-local cycleWait = 5.5
-local depositsPerCycle = 4
+local function checkWhitelist()
+    local success, response = pcall(function()
+        return game:HttpGet(WhitelistURL)
+    end)
 
--- Remote reference
-local craftRemote = ReplicatedStorage
-	:WaitForChild("rbxts_include")
-	:WaitForChild("node_modules")
-	:WaitForChild("@rbxts")
-	:WaitForChild("net")
-	:WaitForChild("out")
-	:WaitForChild("_NetManaged")
-	:WaitForChild("CraftingEntityInteract")
+    if not success then
+        warn(
+            '❌ Failed to fetch whitelist from GitHub: ' .. tostring(response)
+        )
+        return false -- BLOCK execution if we can't fetch the whitelist
+    end
 
--- Flags for toggling potion scripts
-getgenv().SleepPotionEnabled = false
-getgenv().PoisonPotionEnabled = false
-getgenv().HealPotionEnabled = false
-getgenv().ThornFlowerPotionEnabled = false
+    if response then
+        local whitelist = {}
+        for line in response:gmatch('[^\r\n]+') do
+            local cleanUsername = line:gsub('%s+', '')
+            if cleanUsername ~= '' then
+                table.insert(whitelist, cleanUsername:lower())
+            end
+        end
 
+        local lowerUsername = username:lower()
+        for _, whitelistedUser in ipairs(whitelist) do
+            if whitelistedUser == lowerUsername then
+                print('✅ Username ' .. username .. ' found in whitelist')
+                return true
+            end
+        end
 
--- Functions to find cauldrons and closest cauldron
-local function findAllCauldrons()
-	local cauldrons = {}
-	for _, obj in pairs(workspace:GetDescendants()) do
-		if obj:IsA("BasePart") and obj.Name == "brewing_cauldron" then
-			table.insert(cauldrons, obj)
-		end
-	end
-	return cauldrons
+        warn('❌ Username ' .. username .. ' not found in whitelist')
+        return false
+    end
+
+    warn('❌ Whitelist response was empty')
+    return false
 end
 
-local function findClosestCauldron()
-	local cauldrons = findAllCauldrons()
-	local closest, shortest = nil, math.huge
-	local char = player.Character
-	if not char or not char.PrimaryPart then return nil end
-	local pos = char.PrimaryPart.Position
+-- Exit if not whitelisted
+if not checkWhitelist() then
+    warn('🚫 Script execution blocked: User not whitelisted')
+    return 
+end
 
-	for _, cauldron in pairs(cauldrons) do
-		local dist = (cauldron.Position - pos).Magnitude
-		if dist < shortest then
-			shortest = dist
-			closest = cauldron
-		end
-	end
-	return closest
+print('Welcome, ' .. username .. '! Script execution authorized.')
+
+-- KEYBIND SAVING SYSTEM (Added right after whitelist)
+local KeybindManager = {
+    SettingsFolder = 'workspace/PotionScriptSettings',
+    KeybindsFile = 'workspace/PotionScriptSettings/Keybinds.json',
+}
+
+-- Helper function for key names (MUST be defined before KeybindManager functions)
+local function keyToString(k)
+    if not k then
+        return 'None'
+    end
+    if typeof(k) == 'EnumItem' then
+        return tostring(k):gsub('Enum.KeyCode.', '')
+    end
+    return tostring(k)
+end
+
+-- Initialize settings folder
+function KeybindManager:InitializeSettings()
+    if not isfolder(self.SettingsFolder) then
+        makefolder(self.SettingsFolder)
+    end
+end
+
+-- Load keybinds from file
+function KeybindManager:LoadKeybinds()
+    if isfile(self.KeybindsFile) then
+        local success, data = pcall(function()
+            return readfile(self.KeybindsFile)
+        end)
+
+        if success and data then
+            local success, decoded = pcall(function()
+                return game:GetService('HttpService'):JSONDecode(data)
+            end)
+
+            if success and decoded then
+                return decoded
+            end
+        end
+    end
+    return nil
+end
+
+-- Save keybinds to file
+function KeybindManager:SaveKeybinds()
+    self:InitializeSettings()
+
+    local keybindsToSave = {
+        Sleep = keyToString(getgenv().PotionKeybinds.Sleep),
+        Heal = keyToString(getgenv().PotionKeybinds.Heal),
+        Shield = keyToString(getgenv().PotionKeybinds.Shield),
+        Poison = keyToString(getgenv().PotionKeybinds.Poison),
+        AutoCollection = keyToString(getgenv().PotionKeybinds.AutoCollection),
+        GUIToggle = keyToString(getgenv().GUIToggleKeybind),
+    }
+
+    local success, encoded = pcall(function()
+        return game:GetService('HttpService'):JSONEncode(keybindsToSave)
+    end)
+
+    if success and encoded then
+        writefile(self.KeybindsFile, encoded)
+        print('💾 Keybinds saved successfully!')
+        return true
+    end
+    warn('❌ Failed to save keybinds')
+    return false
+end
+
+-- Initialize keybind system
+KeybindManager:InitializeSettings()
+local savedKeybinds = KeybindManager:LoadKeybinds()
+
+-- Set up default keybinds first
+getgenv().PotionToggles = {
+    Sleep = false,
+    Heal = false,
+    Shield = false,
+    Poison = false,
+    AutoCollection = true,
+}
+
+-- Default keybinds
+getgenv().PotionKeybinds = {
+    Sleep = Enum.KeyCode.Home,
+    Heal = Enum.KeyCode.PageUp,
+    Shield = Enum.KeyCode.Delete,
+    Poison = Enum.KeyCode.F10,
+    AutoCollection = Enum.KeyCode.F6,
+}
+
+getgenv().GUIToggleKeybind = Enum.KeyCode.PageDown
+
+-- Load saved keybinds if they exist
+if savedKeybinds then
+    -- Function to convert string back to Enum.KeyCode
+    local function stringToKeyCode(keyString)
+        if keyString and keyString ~= 'None' then
+            local success, keyCode = pcall(function()
+                return Enum.KeyCode[keyString]
+            end)
+            if success and keyCode then
+                return keyCode
+            end
+        end
+        return nil
+    end
+
+    -- Update keybinds with saved values
+    if savedKeybinds.Sleep then
+        getgenv().PotionKeybinds.Sleep = stringToKeyCode(savedKeybinds.Sleep)
+            or Enum.KeyCode.Home
+    end
+    if savedKeybinds.Heal then
+        getgenv().PotionKeybinds.Heal = stringToKeyCode(savedKeybinds.Heal)
+            or Enum.KeyCode.PageUp
+    end
+    if savedKeybinds.Shield then
+        getgenv().PotionKeybinds.Shield = stringToKeyCode(savedKeybinds.Shield)
+            or Enum.KeyCode.Delete
+    end
+    if savedKeybinds.Poison then
+        getgenv().PotionKeybinds.Poison = stringToKeyCode(savedKeybinds.Poison)
+            or Enum.KeyCode.F10
+    end
+    if savedKeybinds.AutoCollection then
+        getgenv().PotionKeybinds.AutoCollection = stringToKeyCode(
+            savedKeybinds.AutoCollection
+        ) or Enum.KeyCode.F6
+    end
+    if savedKeybinds.GUIToggle then
+        getgenv().GUIToggleKeybind = stringToKeyCode(savedKeybinds.GUIToggle)
+            or Enum.KeyCode.PageDown
+    end
+
+    print('✅ Loaded saved keybinds')
+else
+    print('ℹ️ Using default keybinds')
+end
+
+-- REST OF YOUR ORIGINAL SCRIPT CONTINUES HERE...-- Services
+local Players = game:GetService('Players')
+local ReplicatedStorage = game:GetService('ReplicatedStorage')
+local UserInputService = game:GetService('UserInputService')
+local TweenService = game:GetService('TweenService')
+local RunService = game:GetService('RunService')
+local task = task
+local player = Players.LocalPlayer
+
+-- Toggles
+getgenv().PotionToggles = {
+    Sleep = false,
+    Heal = false,
+    Shield = false,
+    Poison = false,
+    AutoCollection = true,
+}
+
+getgenv().PotionKeybinds = {
+    Sleep = Enum.KeyCode.Home,
+    Heal = Enum.KeyCode.PageUp,
+    Shield = Enum.KeyCode.Delete,
+    Poison = Enum.KeyCode.F10,
+    AutoCollection = Enum.KeyCode.F6,
+}
+
+-- GUI Toggle Keybind
+getgenv().GUIToggleKeybind = Enum.KeyCode.PageDown
+
+-- Remote
+local craftRemote = ReplicatedStorage:WaitForChild('rbxts_include')
+    :WaitForChild('node_modules')
+    :WaitForChild('@rbxts')
+    :WaitForChild('net')
+    :WaitForChild('out')
+    :WaitForChild('_NetManaged')
+    :WaitForChild('CraftingEntityInteract')
+
+-- Crafting settings
+local depositInterval = 0.2
+local craftWait = 5.5
+
+-- Cauldron management
+local cauldronAssignments = {}
+
+-- Auto-collection variables
+local AutoCollectionEnabled = true
+local HeartbeatConnection = nil
+local LastScanTime = 0
+local ScanInterval = 0.5
+local ScanCount = 0
+local resourceNames = { 'Flower', 'Mushrooms', 'Thorns' }
+
+-- Get collection remote
+local collectRemote
+pcall(function()
+    collectRemote = ReplicatedStorage:FindFirstChild('rbxts_include')
+    if collectRemote then
+        collectRemote = collectRemote:FindFirstChild('node_modules')
+        if collectRemote then
+            collectRemote = collectRemote:FindFirstChild('@rbxts')
+            if collectRemote then
+                collectRemote = collectRemote:FindFirstChild('net')
+                if collectRemote then
+                    collectRemote = collectRemote:FindFirstChild('out')
+                    if collectRemote then
+                        collectRemote =
+                            collectRemote:FindFirstChild('_NetManaged')
+                        if collectRemote then
+                            collectRemote = collectRemote:FindFirstChild(
+                                'CollectCollectableEntity'
+                            )
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Find all cauldrons and sort by distance
+local function findAllCauldronsSorted()
+    local cauldrons = {}
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA('BasePart') and obj.Name == 'brewing_cauldron' then
+            table.insert(cauldrons, obj)
+        end
+    end
+
+    if #cauldrons == 0 then
+        return {}
+    end
+
+    local char = player.Character
+    if not char or not char.PrimaryPart then
+        return cauldrons
+    end
+
+    table.sort(cauldrons, function(a, b)
+        local distA = (a.Position - char.PrimaryPart.Position).Magnitude
+        local distB = (b.Position - char.PrimaryPart.Position).Magnitude
+        return distA < distB
+    end)
+
+    return cauldrons
+end
+
+-- Get available cauldrons
+local function getAvailableCauldrons()
+    local allCauldrons = findAllCauldronsSorted()
+    local available = {}
+
+    for _, cauldron in ipairs(allCauldrons) do
+        local isAssigned = false
+        for potionType, assignedCauldron in pairs(cauldronAssignments) do
+            if
+                assignedCauldron == cauldron
+                and getgenv().PotionToggles[potionType]
+            then
+                isAssigned = true
+                break
+            end
+        end
+        if not isAssigned then
+            table.insert(available, cauldron)
+        end
+    end
+
+    return available
+end
+
+-- Assign cauldron to potion type
+local function assignCauldronToPotion(potionType)
+    local available = getAvailableCauldrons()
+
+    if #available > 0 then
+        cauldronAssignments[potionType] = available[1]
+        return true
+    end
+
+    return false
+end
+
+-- Release cauldron when potion is toggled off
+local function releaseCauldron(potionType)
+    if cauldronAssignments[potionType] then
+        cauldronAssignments[potionType] = nil
+    end
+end
+
+-- Get the assigned cauldron for a potion type
+local function getAssignedCauldron(potionType)
+    return cauldronAssignments[potionType]
 end
 
 -- Inventory helpers
-local function getCorrectInventory()
-	local inventories = ReplicatedStorage:WaitForChild("Inventories")
-	local best, most = nil, 0
-	for _, folder in pairs(inventories:GetChildren()) do
-		if folder.Name == player.Name then
-			local count = #folder:GetChildren()
-			if count > most then
-				best = folder
-				most = count
-			end
-		end
-	end
-	return best
+local function getInventory()
+    local inv = ReplicatedStorage:WaitForChild('Inventories')
+        :FindFirstChild(player.Name)
+    if not inv then
+        return nil
+    end
+    return inv
 end
 
--- Mushroom helpers
-local function getMushroomCount()
-	local inv = getCorrectInventory()
-	if not inv then return 0 end
-	local mushrooms = inv:FindFirstChild("mushrooms")
-	if mushrooms then
-		return mushrooms:GetAttribute("Amount") or 0
-	end
-	return 0
+local function getItemCount(name)
+    local inv = getInventory()
+    if not inv then
+        return 0
+    end
+
+    local item = inv:FindFirstChild(name)
+    local count = item and (item:GetAttribute('Amount') or 0) or 0
+    return count
 end
 
-local function deductMushrooms(amountToDeduct)
-	local inv = getCorrectInventory()
-	if not inv then return end
-	local mushrooms = inv:FindFirstChild("mushrooms")
-	if mushrooms then
-		local currentAmount = mushrooms:GetAttribute("Amount") or 0
-		if currentAmount >= amountToDeduct then
-			mushrooms:SetAttribute("Amount", currentAmount - amountToDeduct)
-		end
-	end
+local function deductItem(name, amount)
+    local inv = getInventory()
+    if not inv then
+        return
+    end
+
+    local item = inv:FindFirstChild(name)
+    if item then
+        local current = item:GetAttribute('Amount') or 0
+        item:SetAttribute('Amount', math.max(current - amount, 0))
+    end
 end
 
-local function depositMushroom()
-	local cauldron = findClosestCauldron()
-	if not cauldron then return end
+-- Deposit function
+local function depositItem(cauldron, item)
+    if not cauldron then
+        return false
+    end
 
-	local count = getMushroomCount()
-	if count < 1 then return end
+    local id = cauldron:GetAttribute('id')
+    if not id then
+        return false
+    end
 
-	local id = typeof(cauldron.GetAttribute) == "function" and cauldron:GetAttribute("id") or nil
+    local success = pcall(function()
+        craftRemote:FireServer({
+            craftingEntity = {
+                itemType = 'brewing_cauldron',
+                position = cauldron.Position,
+                id = id,
+                owner = player,
+                craftingBlock = cauldron,
+            },
+            itemInHand = item,
+            amount = 1,
+        })
+    end)
 
-	craftRemote:FireServer({
-		craftingEntity = {
-			itemType = "brewing_cauldron",
-			position = cauldron.Position,
-			id = id,
-			owner = player,
-			craftingBlock = cauldron,
-		},
-		itemInHand = "mushrooms",
-		amount = 1,
-	})
-
-	deductMushrooms(1)
+    if success then
+        deductItem(item, 1)
+        return true
+    else
+        return false
+    end
 end
 
--- Wild flower helpers
-local function getWildFlowerCount()
-	local inv = getCorrectInventory()
-	if not inv then return 0 end
-	local flower = inv:FindFirstChild("wild_flower")
-	if flower then
-		return flower:GetAttribute("Amount") or 0
-	end
-	return 0
+-- Collect function
+local function collectPotion(cauldron)
+    if not cauldron then
+        return false
+    end
+
+    local id = cauldron:GetAttribute('id')
+    if not id then
+        return false
+    end
+
+    local success = pcall(function()
+        craftRemote:FireServer({
+            craftingEntity = {
+                itemType = 'brewing_cauldron',
+                position = cauldron.Position,
+                id = id,
+                owner = player,
+                craftingBlock = cauldron,
+            },
+            itemInHand = '',
+        })
+    end)
+
+    return success
 end
 
-local function deductWildFlower(amountToDeduct)
-	local inv = getCorrectInventory()
-	if not inv then return end
-	local flower = inv:FindFirstChild("wild_flower")
-	if flower then
-		local currentAmount = flower:GetAttribute("Amount") or 0
-		if currentAmount >= amountToDeduct then
-			flower:SetAttribute("Amount", currentAmount - amountToDeduct)
-		end
-	end
+-- Helper function for key names
+local function keyToString(k)
+    if not k then
+        return 'None'
+    end
+    if typeof(k) == 'EnumItem' then
+        return tostring(k):gsub('Enum.KeyCode.', '')
+    end
+    return tostring(k)
 end
 
-local function depositWildFlower()
-	local cauldron = findClosestCauldron()
-	if not cauldron then return end
-
-	local count = getWildFlowerCount()
-	if count < 1 then return end
-
-	local id = typeof(cauldron.GetAttribute) == "function" and cauldron:GetAttribute("id") or nil
-
-	craftRemote:FireServer({
-		craftingEntity = {
-			itemType = "brewing_cauldron",
-			position = cauldron.Position,
-			id = id,
-			owner = player,
-			craftingBlock = cauldron,
-		},
-		itemInHand = "wild_flower",
-		amount = 1,
-	})
-
-	deductWildFlower(1)
-end
-local function getThornCount()
-	local inv = getCorrectInventory()
-	if not inv then return 0 end
-	local thorns = inv:FindFirstChild("thorns")
-	if thorns then
-		return thorns:GetAttribute("Amount") or 0
-	end
-	return 0
-end
-
-local function deductThorns(amountToDeduct)
-	local inv = getCorrectInventory()
-	if not inv then return end
-	local thorns = inv:FindFirstChild("thorns")
-	if thorns then
-		local current = thorns:GetAttribute("Amount") or 0
-		if current >= amountToDeduct then
-			thorns:SetAttribute("Amount", current - amountToDeduct)
-		end
-	end
-end
-
-
--- GUI Setup with draggable frame
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "PotionToggleGui"
+-- GUI SETUP
+local ScreenGui = Instance.new('ScreenGui')
+ScreenGui.Name = 'PotionToggleGui'
 ScreenGui.ResetOnSpawn = false
-ScreenGui.Parent = player:WaitForChild("PlayerGui")
+ScreenGui.Parent = player:WaitForChild('PlayerGui')
 
-local Frame = Instance.new("Frame")
-Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-Frame.Size = UDim2.new(0, 220, 0, 200)
+local Frame = Instance.new('Frame')
+Frame.Size = UDim2.new(0, 350, 0, 380)
 Frame.Position = UDim2.new(0, 20, 0, 20)
+Frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+Frame.BorderSizePixel = 0
 Frame.Parent = ScreenGui
 Frame.Active = true
 Frame.Draggable = true
 
-local function createLabel(text, position)
-	local label = Instance.new("TextLabel")
-	label.BackgroundTransparency = 1
-	label.Size = UDim2.new(0, 200, 0, 40)
-	label.Position = position
-	label.Font = Enum.Font.SourceSansBold
-	label.TextSize = 20
-	label.TextColor3 = Color3.fromRGB(255, 255, 255)
-	label.Text = text
-	label.Parent = Frame
-	return label
+local UICorner = Instance.new('UICorner')
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = Frame
+
+local UIStroke = Instance.new('UIStroke')
+UIStroke.Parent = Frame
+UIStroke.Thickness = 2
+UIStroke.Color = Color3.fromRGB(60, 60, 60)
+
+-- Title with GUI toggle info
+local Title = Instance.new('TextLabel')
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.Position = UDim2.new(0, 0, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = 'Potion Crafter\nHide: ['
+    .. keyToString(getgenv().GUIToggleKeybind)
+    .. ']'
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 16
+Title.TextYAlignment = Enum.TextYAlignment.Top
+Title.Parent = Frame
+
+-- GUI Toggle Rebind Button
+local guiRebindBtn = Instance.new('TextButton')
+guiRebindBtn.Size = UDim2.new(0, 80, 0, 20)
+guiRebindBtn.Position = UDim2.new(1, -90, 0, 25)
+guiRebindBtn.Text = 'Rebind GUI'
+guiRebindBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+guiRebindBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+guiRebindBtn.Font = Enum.Font.Gotham
+guiRebindBtn.TextSize = 10
+guiRebindBtn.Parent = Frame
+
+local guiRebindListening = false
+
+-- Create potion rows with rebind buttons
+local potionRows = {}
+
+local function createPotionRow(
+    potionType,
+    yPosition,
+    ingredients,
+    isAutoCollection
+)
+    local container = Instance.new('Frame')
+    container.Size = UDim2.new(1, -20, 0, 55)
+    container.Position = UDim2.new(0, 10, 0, yPosition + 40)
+    container.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    container.BorderSizePixel = 0
+    container.Parent = Frame
+
+    local corner = Instance.new('UICorner')
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = container
+
+    -- Potion name
+    local nameLabel = Instance.new('TextLabel')
+    nameLabel.Size = UDim2.new(0, 100, 0, 25)
+    nameLabel.Position = UDim2.new(0, 10, 0, 5)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = potionType
+    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameLabel.Font = Enum.Font.Gotham
+    nameLabel.TextSize = 14
+    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    nameLabel.Parent = container
+
+    -- Keybind display
+    local keyLabel = Instance.new('TextLabel')
+    keyLabel.Size = UDim2.new(0, 60, 0, 20)
+    keyLabel.Position = UDim2.new(0, 110, 0, 5)
+    keyLabel.BackgroundTransparency = 1
+    keyLabel.Text = '['
+        .. keyToString(getgenv().PotionKeybinds[potionType])
+        .. ']'
+    keyLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+    keyLabel.Font = Enum.Font.Gotham
+    keyLabel.TextSize = 12
+    keyLabel.Parent = container
+
+    -- Rebind button
+    local rebindBtn = Instance.new('TextButton')
+    rebindBtn.Size = UDim2.new(0, 60, 0, 20)
+    rebindBtn.Position = UDim2.new(0, 180, 0, 5)
+    rebindBtn.Text = 'Rebind'
+    rebindBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    rebindBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    rebindBtn.Font = Enum.Font.Gotham
+    rebindBtn.TextSize = 11
+    rebindBtn.Parent = container
+
+    -- Toggle indicator
+    local toggle = Instance.new('TextButton')
+    toggle.Size = UDim2.new(0, 20, 0, 20)
+    toggle.Position = UDim2.new(1, -30, 0, 5)
+    toggle.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+    toggle.BorderSizePixel = 0
+    toggle.Text = ''
+    toggle.AutoButtonColor = false
+    toggle.Parent = container
+
+    local toggleCorner = Instance.new('UICorner')
+    toggleCorner.CornerRadius = UDim.new(0, 4)
+    toggleCorner.Parent = toggle
+
+    local toggleGlow = Instance.new('UIStroke')
+    toggleGlow.Parent = toggle
+    toggleGlow.Thickness = 2
+    toggleGlow.Color = Color3.fromRGB(0, 255, 100)
+    toggleGlow.Transparency = 1
+
+    -- Status indicator
+    local statusLabel = Instance.new('TextLabel')
+    statusLabel.Size = UDim2.new(0, 20, 0, 15)
+    statusLabel.Position = UDim2.new(1, -60, 0, 30)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = '?'
+    statusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+    statusLabel.Font = Enum.Font.Gotham
+    statusLabel.TextSize = 10
+    statusLabel.Parent = container
+
+    -- Ingredients/Description label
+    local descLabel = Instance.new('TextLabel')
+    descLabel.Size = UDim2.new(1, -80, 0, 15)
+    descLabel.Position = UDim2.new(0, 10, 0, 35)
+    descLabel.BackgroundTransparency = 1
+    descLabel.Text = ingredients
+    descLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+    descLabel.Font = Enum.Font.Gotham
+    descLabel.TextSize = 10
+    descLabel.TextXAlignment = Enum.TextXAlignment.Left
+    descLabel.Parent = container
+
+    local listening = false
+
+    local function updateToggle()
+        local isActive = getgenv().PotionToggles[potionType]
+
+        if isAutoCollection then
+            -- Auto-collection toggle logic
+            if isActive then
+                toggle.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+                toggleGlow.Transparency = 0
+                statusLabel.Text = 'ON'
+                statusLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
+            else
+                toggle.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+                toggleGlow.Transparency = 1
+                statusLabel.Text = 'OFF'
+                statusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+            end
+        else
+            -- Potion toggle logic
+            local hasCauldron = getAssignedCauldron(potionType) ~= nil
+
+            if isActive and hasCauldron then
+                toggle.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+                toggleGlow.Transparency = 0
+                statusLabel.Text = '✓'
+                statusLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
+            elseif isActive and not hasCauldron then
+                toggle.BackgroundColor3 = Color3.fromRGB(255, 150, 0)
+                toggleGlow.Transparency = 1
+                statusLabel.Text = '!'
+                statusLabel.TextColor3 = Color3.fromRGB(255, 150, 0)
+            else
+                toggle.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+                toggleGlow.Transparency = 1
+                statusLabel.Text = '✗'
+                statusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+            end
+        end
+
+        keyLabel.Text = '['
+            .. keyToString(getgenv().PotionKeybinds[potionType])
+            .. ']'
+    end
+
+    -- Toggle function
+    local function handleToggle()
+        local newState = not getgenv().PotionToggles[potionType]
+        getgenv().PotionToggles[potionType] = newState
+
+        if isAutoCollection then
+            -- Toggle auto-collection
+            if newState then
+                startAutoCollection()
+            else
+                stopAutoCollection()
+            end
+        else
+            -- Toggle potion crafting
+            if newState then
+                if not assignCauldronToPotion(potionType) then
+                    getgenv().PotionToggles[potionType] = false -- Revert if no cauldron available
+                end
+            else
+                releaseCauldron(potionType)
+            end
+        end
+
+        updateToggle()
+    end
+
+    -- Click handlers
+    toggle.MouseButton1Click:Connect(handleToggle)
+    container.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            handleToggle()
+        end
+    end)
+
+    -- Rebind functionality
+    rebindBtn.MouseButton1Click:Connect(function()
+        if listening then
+            return
+        end
+
+        listening = true
+        rebindBtn.Text = 'Press Key...'
+        rebindBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+
+        local connection
+        connection = UserInputService.InputBegan:Connect(
+            function(input, processed)
+                if processed then
+                    return
+                end
+
+                if input.UserInputType == Enum.UserInputType.Keyboard then
+                    getgenv().PotionKeybinds[potionType] = input.KeyCode
+                    rebindBtn.Text = 'Rebind'
+                    rebindBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+                    updateToggle()
+                    listening = false
+                    connection:Disconnect()
+                end
+            end
+        )
+    end)
+
+    potionRows[potionType] = {
+        update = updateToggle,
+        statusLabel = statusLabel,
+        isAutoCollection = isAutoCollection,
+    }
+
+    updateToggle()
+    return container
 end
-local function depositThornFlowerPotion()
-	local cauldron = findClosestCauldron()
-	if not cauldron then return end
 
-	local id = typeof(cauldron.GetAttribute) == "function" and cauldron:GetAttribute("id") or nil
+-- Create potion rows
+createPotionRow('Sleep', 0, '3 Mushrooms', false)
+createPotionRow('Heal', 65, '3 Wild Flowers', false)
+createPotionRow('Shield', 130, '2 Thorns + 1 Flower', false)
+createPotionRow('Poison', 195, '2 Mushrooms + 1 Thorn', false)
+createPotionRow('AutoCollection', 260, 'Auto-collect resources (F6)', true)
 
-	-- Check if we have everything *before* starting
-	if getThornCount() >= 2 and getWildFlowerCount() >= 1 then
-		for i = 1, 2 do
-			craftRemote:FireServer({
-				craftingEntity = {
-					itemType = "brewing_cauldron",
-					position = cauldron.Position,
-					id = id,
-					owner = player,
-					craftingBlock = cauldron,
-				},
-				itemInHand = "thorns",
-				amount = 1,
-			})
-			deductThorns(1)
-			task.wait(0.3)
-		end
+-- Status label
+local statusLabel = Instance.new('TextLabel')
+statusLabel.Size = UDim2.new(1, -20, 0, 20)
+statusLabel.Position = UDim2.new(0, 10, 1, -25)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = 'Initializing...'
+statusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextSize = 12
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Parent = Frame
 
-		craftRemote:FireServer({
-			craftingEntity = {
-				itemType = "brewing_cauldron",
-				position = cauldron.Position,
-				id = id,
-				owner = player,
-				craftingBlock = cauldron,
-			},
-			itemInHand = "wild_flower",
-			amount = 1,
-		})
-		deductWildFlower(1)
-	end
+-- GUI Toggle Functionality
+local function updateGUIToggleDisplay()
+    Title.Text = 'Potion Crafter\nHide: ['
+        .. keyToString(getgenv().GUIToggleKeybind)
+        .. ']'
 end
 
+guiRebindBtn.MouseButton1Click:Connect(function()
+    if guiRebindListening then
+        return
+    end
 
+    guiRebindListening = true
+    guiRebindBtn.Text = 'Press Key...'
+    guiRebindBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
 
-local sleepLabel = createLabel("Sleep Potion: OFF (Home)", UDim2.new(0, 10, 0, 10))
-local healLabel = createLabel("Heal Potion: OFF (End)", UDim2.new(0, 10, 0, 60))
-local thornFlowerLabel = createLabel("Shield Potion: OFF (Del)", UDim2.new(0, 10, 0, 110))
-local poisonLabel = createLabel("Poison Potion: OFF (F10)", UDim2.new(0, 10, 0, 160))
+    local connection
+    connection = UserInputService.InputBegan:Connect(function(input, processed)
+        if processed then
+            return
+        end
 
+        if input.UserInputType == Enum.UserInputType.Keyboard then
+            getgenv().GUIToggleKeybind = input.KeyCode
+            guiRebindBtn.Text = 'Rebind Hide'
+            guiRebindBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+            updateGUIToggleDisplay()
+            guiRebindListening = false
+            connection:Disconnect()
+        end
+    end)
+end)
 
-local function updateLabels()
-	sleepLabel.Text = ("Sleep Potion: %s (Home)"):format(getgenv().SleepPotionEnabled and "ON" or "OFF")
-	healLabel.Text = ("Heal Potion: %s (End)"):format(getgenv().HealPotionEnabled and "ON" or "OFF")
-	thornFlowerLabel.Text = ("Shield Potion: %s (Delete)"):format(getgenv().ThornFlowerPotionEnabled and "ON" or "OFF")
-    poisonLabel.Text = ("Poison Potion: %s (F10)"):format(getgenv().PoisonPotionEnabled and "ON" or "OFF")
-    
-    poisonLabel.TextColor3 = getgenv().PoisonPotionEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
-	sleepLabel.TextColor3 = getgenv().SleepPotionEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
-	healLabel.TextColor3 = getgenv().HealPotionEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
-	thornFlowerLabel.TextColor3 = getgenv().ThornFlowerPotionEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+-- OPTIMIZED AUTO-COLLECTION SYSTEM (Real-time)
+local function stopAutoCollection()
+    print('🛑 Stopping auto-collection...')
+    if HeartbeatConnection then
+        HeartbeatConnection:Disconnect()
+        HeartbeatConnection = nil
+    end
+    statusLabel.Text = 'Auto Collection: OFF'
 end
 
-updateLabels()
+local function startAutoCollection()
+    if not getgenv().PotionToggles.AutoCollection then
+        return
+    end
 
--- Input Handling for toggles (only one active at a time)
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
+    if not collectRemote then
+        statusLabel.Text = 'Auto Collection: ERROR - No remote'
+        return
+    end
 
-	if input.KeyCode == Enum.KeyCode.Home then
-		if not getgenv().SleepPotionEnabled then
-			getgenv().SleepPotionEnabled = true
-			getgenv().HealPotionEnabled = false
-			getgenv().ThornFlowerPotionEnabled = false
-			getgenv().PoisonPotionEnabled = false
-		else
-			getgenv().SleepPotionEnabled = false
-		end
+    print('🚀 Starting real-time auto-collection...')
+    stopAutoCollection()
 
-	elseif input.KeyCode == Enum.KeyCode.End then
-		if not getgenv().HealPotionEnabled then
-			getgenv().HealPotionEnabled = true
-			getgenv().SleepPotionEnabled = false
-			getgenv().ThornFlowerPotionEnabled = false
-			getgenv().PoisonPotionEnabled = false
-		else
-			getgenv().HealPotionEnabled = false
-		end
+    statusLabel.Text = 'Auto Collection: ON - Scanning...'
 
-	elseif input.KeyCode == Enum.KeyCode.F10 then
-		if not getgenv().PoisonPotionEnabled then
-			getgenv().PoisonPotionEnabled = true
-			getgenv().SleepPotionEnabled = false
-			getgenv().HealPotionEnabled = false
-			getgenv().ThornFlowerPotionEnabled = false
-		else
-			getgenv().PoisonPotionEnabled = false
-		end
+    HeartbeatConnection = RunService.Heartbeat:Connect(function()
+        if not getgenv().PotionToggles.AutoCollection then
+            stopAutoCollection()
+            return
+        end
 
-	elseif input.KeyCode == Enum.KeyCode.Delete then
-		if not getgenv().ThornFlowerPotionEnabled then
-			getgenv().ThornFlowerPotionEnabled = true
-			getgenv().SleepPotionEnabled = false
-			getgenv().HealPotionEnabled = false
-			getgenv().PoisonPotionEnabled = false
-		else
-			getgenv().ThornFlowerPotionEnabled = false
-		end
-	end
+        local currentTime = tick()
+        if currentTime - LastScanTime < ScanInterval then
+            return
+        end
+        LastScanTime = currentTime
 
-	updateLabels()
+        local character = player.Character
+        if not character then
+            return
+        end
+
+        local rootPart = character:FindFirstChild('HumanoidRootPart')
+        if not rootPart then
+            return
+        end
+
+        local rootPosition = rootPart.Position
+        local collectedThisScan = 0
+        local maxRange = 27
+        local maxRangeSquared = maxRange * maxRange
+
+        -- Fast direct scanning with optimized checks
+        for _, resourceName in ipairs(resourceNames) do
+            -- Get all models with this resource name directly
+            local resources = workspace:GetDescendants()
+            for i = 1, #resources do
+                local item = resources[i]
+
+                if not getgenv().PotionToggles.AutoCollection then
+                    return
+                end
+
+                if item:IsA('Model') and item.Name == resourceName then
+                    local itemId = item:GetAttribute('Id')
+                    if itemId then
+                        -- Fast distance check using squared magnitude
+                        local itemPos = item:GetPivot().Position
+                        local distanceSquared = (itemPos - rootPosition).Magnitude
+
+                        if distanceSquared <= maxRangeSquared then
+                            local success = pcall(function()
+                                collectRemote:FireServer({
+                                    id = itemId,
+                                    collectableName = resourceName,
+                                })
+                            end)
+
+                            if success then
+                                collectedThisScan = collectedThisScan + 1
+                                -- Very small delay to prevent server overload but maintain speed
+                                if collectedThisScan % 3 == 0 then
+                                    task.wait(0.01)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Update status
+        if collectedThisScan > 0 then
+            statusLabel.Text = 'Auto Collection: Collected '
+                .. collectedThisScan
+                .. ' items!'
+        else
+            ScanCount = ScanCount + 1
+            statusLabel.Text = 'Auto Collection: Scanning... ('
+                .. ScanCount
+                .. ' scans)'
+        end
+    end)
+end
+
+-- GUI Toggle Keybind Handler
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then
+        return
+    end
+
+    -- GUI Toggle
+    if
+        input.UserInputType == Enum.UserInputType.Keyboard
+        and input.KeyCode == getgenv().GUIToggleKeybind
+    then
+        Frame.Visible = not Frame.Visible
+    end
+
+    -- Potion Keybinds
+    if input.UserInputType ~= Enum.UserInputType.Keyboard then
+        return
+    end
+
+    for potionType, keybind in pairs(getgenv().PotionKeybinds) do
+        if input.KeyCode == keybind then
+            local isAutoCollection = potionType == 'AutoCollection'
+            local newState = not getgenv().PotionToggles[potionType]
+            getgenv().PotionToggles[potionType] = newState
+
+            if isAutoCollection then
+                -- Toggle auto-collection
+                if newState then
+                    startAutoCollection()
+                else
+                    stopAutoCollection()
+                end
+            else
+                -- Toggle potion crafting
+                if newState then
+                    if not assignCauldronToPotion(potionType) then
+                        getgenv().PotionToggles[potionType] = false -- Revert if no cauldron available
+                    end
+                else
+                    releaseCauldron(potionType)
+                end
+            end
+
+            if potionRows[potionType] then
+                potionRows[potionType].update()
+            end
+            break
+        end
+    end
 end)
 
--- Deposit loops
--- Sleep Potion
+-- FAST POTION CRAFTING LOOPS WITH IMMEDIATE COLLECTION
+local function createPotionLoop(potionType, ingredients)
+    return function()
+        while task.wait(1) do
+            if getgenv().PotionToggles[potionType] then
+                local cauldron = getAssignedCauldron(potionType)
+
+                if not cauldron then
+                    if assignCauldronToPotion(potionType) then
+                        cauldron = getAssignedCauldron(potionType)
+                        if potionRows[potionType] then
+                            potionRows[potionType].update()
+                        end
+                    else
+                        task.wait(3)
+                        continue
+                    end
+                end
+
+                local canCraft = false
+                if potionType == 'Sleep' then
+                    canCraft = getItemCount('mushrooms') >= 3
+                elseif potionType == 'Heal' then
+                    canCraft = getItemCount('wild_flower') >= 3
+                elseif potionType == 'Shield' then
+                    canCraft = getItemCount('thorns') >= 2
+                        and getItemCount('wild_flower') >= 1
+                elseif potionType == 'Poison' then
+                    canCraft = getItemCount('mushrooms') >= 2
+                        and getItemCount('thorns') >= 1
+                end
+
+                if canCraft and cauldron then
+                    if potionType == 'Sleep' then
+                        for i = 1, 3 do
+                            if getItemCount('mushrooms') >= 1 then
+                                depositItem(cauldron, 'mushrooms')
+                                task.wait(depositInterval)
+                            end
+                        end
+                    elseif potionType == 'Heal' then
+                        for i = 1, 3 do
+                            if getItemCount('wild_flower') >= 1 then
+                                depositItem(cauldron, 'wild_flower')
+                                task.wait(depositInterval)
+                            end
+                        end
+                    elseif potionType == 'Shield' then
+                        depositItem(cauldron, 'thorns')
+                        task.wait(depositInterval)
+                        depositItem(cauldron, 'thorns')
+                        task.wait(depositInterval)
+                        depositItem(cauldron, 'wild_flower')
+                    elseif potionType == 'Poison' then
+                        depositItem(cauldron, 'mushrooms')
+                        task.wait(depositInterval)
+                        depositItem(cauldron, 'mushrooms')
+                        task.wait(depositInterval)
+                        depositItem(cauldron, 'thorns')
+                    end
+
+                    local startTime = tick()
+                    while tick() - startTime < craftWait do
+                        task.wait(0.1)
+                    end
+
+                    collectPotion(cauldron)
+                end
+            end
+        end
+    end
+end
+
+-- Create and start all potion loops
+local sleepLoop = createPotionLoop('Sleep', '3 Mushrooms')
+local healLoop = createPotionLoop('Heal', '3 Wild Flowers')
+local shieldLoop = createPotionLoop('Shield', '2 Thorns + 1 Flower')
+local poisonLoop = createPotionLoop('Poison', '2 Mushrooms + 1 Thorn')
+
+task.spawn(sleepLoop)
+task.spawn(healLoop)
+task.spawn(shieldLoop)
+task.spawn(poisonLoop)
+
+-- Update status display
 task.spawn(function()
-	while true do
-		if getgenv().SleepPotionEnabled and getMushroomCount() >= 1 then
-			for i = 1, depositsPerCycle do
-				if getMushroomCount() >= 1 then
-					depositMushroom()
-					task.wait(depositInterval)
-				end
-			end
-			task.wait(cycleWait)
-		else
-			task.wait(0.5)
-		end
-	end
+    while task.wait(2) do
+        local allCauldrons = findAllCauldronsSorted()
+        local activeCount = 0
+        local assignmentText = ''
+
+        for potionType, _ in pairs(getgenv().PotionToggles) do
+            if
+                getgenv().PotionToggles[potionType]
+                and potionType ~= 'AutoCollection'
+            then
+                activeCount += 1
+                if getAssignedCauldron(potionType) then
+                    assignmentText = assignmentText .. potionType .. ' '
+                end
+            end
+        end
+
+        if assignmentText == '' then
+            assignmentText = 'None'
+        end
+
+        -- Only update status if auto-collection is not active
+        if
+            not getgenv().PotionToggles.AutoCollection
+            or not string.find(statusLabel.Text, 'Auto Collection')
+        then
+            statusLabel.Text = 'Cauldrons: '
+                .. #allCauldrons
+                .. ' | Active: '
+                .. activeCount
+                .. ' | Assignments: '
+                .. assignmentText
+        end
+
+        for potionType, row in pairs(potionRows) do
+            row.update()
+        end
+    end
 end)
 
--- Heal Potion
-task.spawn(function()
-	while true do
-		if getgenv().HealPotionEnabled and getWildFlowerCount() >= 1 then
-			for i = 1, depositsPerCycle do
-				if getWildFlowerCount() >= 1 then
-					depositWildFlower()
-					task.wait(depositInterval)
-				end
-			end
-			task.wait(cycleWait)
-		else
-			task.wait(0.5)
-		end
-	end
-end)
--- Shield Potion (Thorn Flower Potion)
-task.spawn(function()
-	while true do
-		if getgenv().ThornFlowerPotionEnabled then
-			local cauldron = findClosestCauldron()
-			if cauldron then
-				local id = typeof(cauldron.GetAttribute) == "function" and cauldron:GetAttribute("id") or nil
+-- Start auto-collection if enabled
+if getgenv().PotionToggles.AutoCollection then
+    task.wait(2)
+    startAutoCollection()
+end
 
-				-- Strict check: lock 3 thorns + 1 wild flower before beginning
-				if getThornCount() >= 2 and getWildFlowerCount() >= 1 then
+updateGUIToggleDisplay()
 
-					local function deposit(item)
-						craftRemote:FireServer({
-							craftingEntity = {
-								itemType = "brewing_cauldron",
-								position = cauldron.Position,
-								id = id,
-								owner = player,
-								craftingBlock = cauldron,
-							},
-							itemInHand = item,
-							amount = 1,
-						})
-						if item == "thorns" then deductThorns(1)
-						elseif item == "wild_flower" then deductWildFlower(1) end
-					end
-
-					-- Lock order
-					deposit("thorns")
-					task.wait(0.5)
-
-					deposit("thorns")
-					task.wait(0.5)
-
-					deposit("wild_flower")
-                    task.wait(8.1)
-					deposit("thorns")
-
-				else
-					task.wait(0.5)
-				end
-			else
-				task.wait(0.5)
-			end
-		else
-			task.wait(0.5)
-		end
-	end
-end)
-task.spawn(function()
-	while true do
-		if getgenv().PoisonPotionEnabled then
-			local cauldron = findClosestCauldron()
-			if cauldron then
-				local id = typeof(cauldron.GetAttribute) == "function" and cauldron:GetAttribute("id") or nil
-
-				if getMushroomCount() >= 2 and getThornCount() >= 2 then
-					local function deposit(item)
-						craftRemote:FireServer({
-							craftingEntity = {
-								itemType = "brewing_cauldron",
-								position = cauldron.Position,
-								id = id,
-								owner = player,
-								craftingBlock = cauldron,
-							},
-							itemInHand = item,
-							amount = 1,
-						})
-						if item == "mushrooms" then deductMushrooms(1)
-						elseif item == "thorns" then deductThorns(1) end
-					end
-
-					deposit("mushrooms")
-					task.wait(0.75)
-
-					deposit("mushrooms")
-					task.wait(0.75) 
-                    
-                    
-
-					deposit("thorns")
-					
-
-					
-                    task.wait(5.6)
-					deposit("thorns")
-				else
-					task.wait(0.5)
-				end
-			else
-				task.wait(0.5)
-			end
-		else
-			task.wait(0.5)
-		end
-	end
-end)
-
-
-
--- Auto Collect Script (always on)
-local collectableNames = {
-	["Flower"] = true,
-	["Mushrooms"] = true,
-	["Thorns"] = true
-}
-
-task.spawn(function()
-	while true do
-		for _, obj in ipairs(workspace:GetDescendants()) do
-			if obj:IsA("ProximityPrompt")
-				and obj.ActionText == "Collect"
-				and collectableNames[obj.ObjectText]
-			then
-				pcall(function()
-					obj.RequiresLineOfSight = false
-					obj.MaxActivationDistance = 16.25
-					obj.Style = Enum.ProximityPromptStyle.Custom
-				end)
-
-				task.defer(function()
-					obj:InputHoldBegin()
-					obj:InputHoldEnd()
-				end)
-			end
-		end
-		task.wait(0.07)
-	end
-end)
+print('Enhanced Potion Crafter Loaded Successfully!')
+print('Heal Potion: PageUp | Hide GUI: PageDown')
+print('Auto-Collection: F6 | Multi-cauldron support')
+print('Real-time auto-collection with 27 stud reach enabled')

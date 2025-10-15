@@ -1,19 +1,20 @@
-local function WaitForGameLoad()
-    local Players = game:GetService("Players")
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-    -- Wait for the game to report it's loaded
+-- Wait for full game load and ensure LocalPlayer exists
+local function WaitForGameLoad()
+    -- Wait for the game to fully load
     repeat task.wait() until game:IsLoaded()
 
-    -- Wait for the LocalPlayer to exist
-    local plr = Players.LocalPlayer or Players.PlayerAdded:Wait()
+    -- Get LocalPlayer and update global variable
+    LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 
-    -- Wait for the character to exist and be ready
-    local char = plr.Character or plr.CharacterAdded:Wait()
+    -- Wait for character to exist
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     char:WaitForChild("Humanoid")
     char:WaitForChild("HumanoidRootPart")
 
-    -- Wait for the TS modules (or until timeout)
+    -- Wait for TS modules (or until timeout)
     local maxWait, startTime = 30, tick()
     while tick() - startTime < maxWait do
         if ReplicatedStorage:FindFirstChild("TS") and pcall(function()
@@ -27,9 +28,6 @@ local function WaitForGameLoad()
     -- short final delay to let things settle
     task.wait(1)
 end
-
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")

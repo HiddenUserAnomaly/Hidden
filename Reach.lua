@@ -1,3 +1,5 @@
+if _G.ReachScriptLoaded then return end
+_G.ReachScriptLoaded = true
 if type(queue_on_teleport) == "function" then
     queue_on_teleport([[
         loadstring(game:HttpGet("https://raw.githubusercontent.com/HiddenUserAnomaly/Hidden/main/Reach.lua"))()
@@ -289,6 +291,7 @@ local function CreateGUI()
     local existingGui = uiParent:FindFirstChild("ReachGUI")
     if existingGui then
         ScreenGui = existingGui
+        ScreenGui.Enabled = false -- Ensure it starts hidden
         return ScreenGui
     end
 
@@ -296,14 +299,14 @@ local function CreateGUI()
     ScreenGui = Instance.new("ScreenGui")
     ScreenGui.Name = "ReachGUI"
     ScreenGui.ResetOnSpawn = false
-    ScreenGui.Enabled = false
+    ScreenGui.Enabled = false  -- Start with GUI hidden
 
     if type(syn)=="table" and type(syn.protect_gui)=="function" then
         pcall(function() syn.protect_gui(ScreenGui) end)
     end
     ScreenGui.Parent = uiParent
 
-    -- Rest of your GUI creation code remains the same...
+    -- Rest of your GUI creation code...
     local MainFrame = Instance.new("Frame")
     MainFrame.Size = UDim2.new(0,240,0,180)
     MainFrame.Position = UDim2.new(0,10,0,10)

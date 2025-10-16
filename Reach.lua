@@ -1,70 +1,123 @@
 if _G.ReachScriptLoaded then return end
 _G.ReachScriptLoaded = true
+
 if type(queue_on_teleport) == "function" then
     queue_on_teleport([[
         loadstring(game:HttpGet("https://raw.githubusercontent.com/HiddenUserAnomaly/Hidden/main/Reach.lua"))()
     ]])
 end
+
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
--- Wait for full game load and ensure LocalPlayer exists
-local function WaitForGameLoad()
-    -- Wait for the game to fully load
-    repeat task.wait() until game:IsLoaded()
-
-    -- Get LocalPlayer and update global variable
-    LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
-
-    -- Wait for character to exist
-    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    char:WaitForChild("Humanoid")
-    char:WaitForChild("HumanoidRootPart")
-
-    -- Wait for TS modules (or until timeout)
-    local maxWait, startTime = 30, tick()
-    while tick() - startTime < maxWait do
-        if ReplicatedStorage:FindFirstChild("TS") and pcall(function()
-            return require(ReplicatedStorage.TS.remotes).default.Client
-        end) then
-            break
-        end
-        task.wait(1)
-    end
-
-    -- short final delay to let things settle
-    task.wait(1)
-end
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 
-local LocalPlayer = Players.LocalPlayer
-local waitOne = task.wait
+-- Cache frequently used functions and services
+local task_wait = task.wait
+local task_spawn = task.spawn
+local task_defer = task.defer
+local table_insert = table.insert
+local table_remove = table.remove
+local table_find = table.find
+local table_clear = table.clear
+local math_max = math.max
+local math_min = math.min
+local math_clamp = math.clamp
+local math_floor = math.floor
+local Vector3_new = Vector3.new
+local CFrame_new = CFrame.new
+local CFrame_lookAt = CFrame.lookAt
+local Color3_fromRGB = Color3.fromRGB
+local UDim2_new = UDim2.new
+local Instance_new = Instance.new
 
--- Webhook
-local WEBHOOK_URL = "https://discord.com/api/webhooks/1244038508742447204/zKLKOJZPwr4mMEFY-o2ePHFx1-irKF6vONN9kgN_-JLshi2mLrQKbYaVInTQR-pKEizP"
-local function getHttpRequest()
-    if typeof(syn) == "table" and typeof(syn.request) == "function" then return syn.request end
-    if typeof(http_request) == "function" then return http_request end
-    if typeof(request) == "function" then return request end
-    if typeof(http) == "table" and typeof(http.request) == "function" then return http.request end
-    if typeof(fluxus) == "table" and typeof(fluxus.request) == "function" then return fluxus.request end
-    return nil
+-- Wait for full game load with better error handling
+local function WaitForGameLoad()
+    repeat task_wait() until game:IsLoaded()
+    
+    local LocalPlayer = Players.LocalPlayer
+    if not LocalPlayer then
+        LocalPlayer = Players.PlayerAdded:Wait()
+    end
+    
+    local char = LocalPlayer.Character
+    if not char then
+        char = LocalPlayer.CharacterAdded:Wait()
+    end
+    
+    -- Wait for critical components with timeout
+    local startTime = tick()
+    while tick() - startTime < 10 do
+        if char:FindFirstChild("Humanoid") and char:FindFirstChild("HumanoidRootPart") then
+            break
+        end
+        task_wait(0.1)
+    end
+    
+    -- Wait for game systems with progressive backoff
+    local maxWait, startTime = 20, tick()
+    local checkInterval = 0.5
+    
+    while tick() - startTime < maxWait do
+        local success = pcall(function()
+            local TS = ReplicatedStorage:FindFirstChild("TS")
+            if not TS then return false end
+            
+            local remotes = require(TS.remotes)
+            if remotes and remotes.default and remotes.default.Client then
+                return true
+            end
+            return false
+        end)
+        
+        if success then break end
+        task_wait(checkInterval)
+        checkInterval = math_min(checkInterval * 1.5, 2) -- Progressive backoff
+    end
+    
+    task_wait(0.5) -- Final stabilization
 end
-local HttpRequest = getHttpRequest()
+
+local LocalPlayer = Players.LocalPlayer
+
+-- Optimized webhook functions
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1244038508742447204/zKLKOJZPwr4mMEFY-o2ePHFx1-irKF6vONN9kgN_-JLshi2mLrQKbYaVInTQR-pKEizP"
+
+local HttpRequest
+do
+    local httpMethods = {
+        syn = "request",
+        http_request = "",
+        request = "",
+        http = "request", 
+        fluxus = "request"
+    }
+    
+    for obj, method in pairs(httpMethods) do
+        local lib = _G[obj] or (type(obj) == "string" and loadstring("return "..obj)())
+        if lib and (method == "" or type(lib[method]) == "function") then
+            HttpRequest = method == "" and lib or lib[method]
+            break
+        end
+    end
+end
 
 local function sendWebhook(content, embed)
     if not HttpRequest then return end
-    local payload = { content = content or "" }
-    if embed then payload.embeds = { embed } end
-    pcall(function()
-        HttpRequest({
-            Url = WEBHOOK_URL,
-            Method = "POST",
-            Headers = { ["Content-Type"] = "application/json" },
-            Body = HttpService:JSONEncode(payload)
-        })
+    
+    local payload = {content = content or ""}
+    if embed then payload.embeds = {embed} end
+    
+    task_spawn(function()
+        pcall(function()
+            HttpRequest({
+                Url = WEBHOOK_URL,
+                Method = "POST",
+                Headers = {["Content-Type"] = "application/json"},
+                Body = HttpService:JSONEncode(payload)
+            })
+        end)
     end)
 end
 
@@ -73,7 +126,7 @@ local function makeEmbed(title, desc, color, footer)
         title = title,
         description = desc,
         color = color or 0x2F3136,
-        footer = footer and { text = footer } or nil,
+        footer = footer and {text = footer} or nil,
     }
 end
 
@@ -89,9 +142,7 @@ local function notifyReachState(on)
     sendWebhook(nil, makeEmbed(title, desc, on and 0x22C55E or 0xE11D48, "Reach Toggle"))
 end
 
-
-
--- Entity Library
+-- Optimized Entity Library
 local entitylib = {
     isAlive = false,
     character = {},
@@ -99,51 +150,62 @@ local entitylib = {
     Connections = {},
     PlayerConnections = {},
     EntityThreads = {},
-    Running = false,
-    Events = setmetatable({}, {
-        __index = function(self, ind)
-            self[ind] = {
-                Connections = {},
-                Connect = function(rself, func)
-                    table.insert(rself.Connections, func)
-                    return { Disconnect = function() table.remove(rself.Connections, table.find(rself.Connections, func)) end }
-                end,
-                Fire = function(rself, ...) for _, v in rself.Connections do task.spawn(v, ...) end end,
-                Destroy = function(rself) table.clear(rself.Connections); table.clear(rself) end
-            }
-            return self[ind]
-        end
-    })
+    Running = false
 }
 
 local lplr = LocalPlayer
+
+-- Pre-calculate team check conditions
 entitylib.targetCheck = function(ent)
     if ent.TeamCheck then return ent:TeamCheck() end
     if ent.NPC then return true end
-    if not lplr.Team or not ent.Player.Team then return true end
-    return ent.Player.Team ~= lplr.Team
+    local myTeam, theirTeam = lplr.Team, ent.Player and ent.Player.Team
+    if not myTeam or not theirTeam then return true end
+    return myTeam ~= theirTeam
 end
 
 entitylib.getEntity = function(char)
     for i, v in entitylib.List do
-        if v.Player == char or v.Character == char then return v, i end
+        if v.Player == char or v.Character == char then 
+            return v, i 
+        end
     end
 end
 
 entitylib.addEntity = function(char, plr, teamfunc)
     if not char then return end
-    entitylib.EntityThreads[char] = task.spawn(function()
-        local hum = char:WaitForChild("Humanoid",10)
-        local hrp = hum and char:WaitForChild("HumanoidRootPart",10)
-        local head = char:WaitForChild("Head",10) or hrp
+    
+    entitylib.EntityThreads[char] = task_spawn(function()
+        local hum, hrp, head
+        
+        -- Fast sequential checking with early returns
+        for _ = 1, 20 do -- 2 second timeout (20 * 0.1)
+            if not char.Parent then break end
+            
+            hum = char:FindFirstChild("Humanoid")
+            if hum then
+                hrp = char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    head = char:FindFirstChild("Head") or hrp
+                    break
+                end
+            end
+            task_wait(0.1)
+        end
+        
         if hum and hrp then
-            local entity = {Character=char, Humanoid=hum, HumanoidRootPart=hrp, Head=head, Player=plr, NPC=plr==nil, Connections={}, TeamCheck=teamfunc}
-            if plr==lplr then
+            local entity = {
+                Character = char, Humanoid = hum, HumanoidRootPart = hrp, Head = head,
+                Player = plr, NPC = plr == nil, Connections = {}, TeamCheck = teamfunc,
+                Health = hum.Health, MaxHealth = hum.MaxHealth
+            }
+            
+            if plr == lplr then
                 entitylib.character = entity
                 entitylib.isAlive = true
             else
                 entity.Targetable = entitylib.targetCheck(entity)
-                table.insert(entitylib.List, entity)
+                table_insert(entitylib.List, entity)
             end
         end
         entitylib.EntityThreads[char] = nil
@@ -153,19 +215,28 @@ end
 entitylib.removeEntity = function(char, localcheck)
     if localcheck then
         if entitylib.isAlive then
-            entitylib.isAlive=false
-            for _,v in entitylib.character.Connections do v:Disconnect() end
-            table.clear(entitylib.character.Connections)
+            entitylib.isAlive = false
+            for _, v in entitylib.character.Connections do 
+                v:Disconnect() 
+            end
+            table_clear(entitylib.character.Connections)
         end
         return
     end
+    
     if char then
-        if entitylib.EntityThreads[char] then task.cancel(entitylib.EntityThreads[char]); entitylib.EntityThreads[char]=nil end
+        if entitylib.EntityThreads[char] then 
+            task.cancel(entitylib.EntityThreads[char])
+            entitylib.EntityThreads[char] = nil 
+        end
+        
         local entity, ind = entitylib.getEntity(char)
         if ind then
-            for _,v in entity.Connections do v:Disconnect() end
-            table.clear(entity.Connections)
-            table.remove(entitylib.List, ind)
+            for _, v in entity.Connections do 
+                v:Disconnect() 
+            end
+            table_clear(entity.Connections)
+            table_remove(entitylib.List, ind)
         end
     end
 end
@@ -176,65 +247,86 @@ entitylib.refreshEntity = function(char, plr)
 end
 
 entitylib.addPlayer = function(plr)
-    if plr.Character then entitylib.refreshEntity(plr.Character, plr) end
+    if plr.Character then 
+        entitylib.refreshEntity(plr.Character, plr) 
+    end
+    
     entitylib.PlayerConnections[plr] = {
-        plr.CharacterAdded:Connect(function(c) entitylib.refreshEntity(c, plr) end),
-        plr.CharacterRemoving:Connect(function(c) entitylib.removeEntity(c, plr==lplr) end)
+        plr.CharacterAdded:Connect(function(c) 
+            entitylib.refreshEntity(c, plr) 
+        end),
+        plr.CharacterRemoving:Connect(function(c) 
+            entitylib.removeEntity(c, plr == lplr) 
+        end)
     }
 end
 
 entitylib.start = function()
     if entitylib.Running then return end
-    table.insert(entitylib.Connections, Players.PlayerAdded:Connect(entitylib.addPlayer))
-    table.insert(entitylib.Connections, Players.PlayerRemoving:Connect(function(v)
+    
+    table_insert(entitylib.Connections, Players.PlayerAdded:Connect(entitylib.addPlayer))
+    table_insert(entitylib.Connections, Players.PlayerRemoving:Connect(function(v)
         if entitylib.PlayerConnections[v] then
-            for _,c in entitylib.PlayerConnections[v] do c:Disconnect() end
-            entitylib.PlayerConnections[v]=nil
+            for _, c in entitylib.PlayerConnections[v] do 
+                c:Disconnect() 
+            end
+            entitylib.PlayerConnections[v] = nil
         end
         entitylib.removeEntity(v.Character)
     end))
-    for _,v in Players:GetPlayers() do entitylib.addPlayer(v) end
+    
+    for _, v in Players:GetPlayers() do 
+        entitylib.addPlayer(v) 
+    end
+    
     entitylib.Running = true
 end
 
--- Reach Config
+-- Enhanced Reach Configuration with better calculations
 local Reach = {
     Enabled = true,
-    Range = 13.72,
+    Range = 13.85,
     OriginalRaycastDistance = 14.4,
     CachedConstants = nil,
-    CachedClient = nil
+    CachedClient = nil,
+    LastAppliedRange = nil
 }
+
+-- Constants for better performance
 local BASE_DISTANCE = 14.399
 local MIN_RANGE = 12
 local MAX_RANGE = 18
+local RANGE_TOLERANCE = 0.1 -- Small tolerance to avoid constant updates
 
-local Vector3_new = Vector3.new
-local CFrame_lookAt = CFrame.lookAt
-local math_max = math.max
-local math_clamp = math.clamp
+-- Optimized distance calculation function
+local function calculateReachExtension(selfpos, targetpos, currentDistance)
+    if currentDistance <= BASE_DISTANCE then
+        return selfpos -- No extension needed
+    end
+    
+    -- Calculate direction once and reuse
+    local direction = (targetpos - selfpos).Unit
+    local extensionAmount = math_max(currentDistance - BASE_DISTANCE, 0)
+    
+    -- Apply smooth extension with slight overshoot for consistency
+    return selfpos + (direction * (extensionAmount * 1.02)) -- 2% overshoot for better hitreg
+end
 
--- Setup Keybinds
-local Keybinds = {ToggleReach=Enum.KeyCode.Equals, ToggleGUI=Enum.KeyCode.F5}
-local ScreenGui = nil
-
--- Reach Setup (Client Hook)
+-- Improved SetupReach with better hooking
 local function SetupReach()
     if Reach.CachedClient then return true end
     
     local Client
-    local success, result = pcall(function() 
-        return require(ReplicatedStorage.TS.remotes).default.Client 
+    local success = pcall(function() 
+        Client = require(ReplicatedStorage.TS.remotes).default.Client
     end)
     
-    if success then 
-        Client = result 
-    else
-        -- Faster module scanning
+    if not success then
+        -- Fast module scanning with type checking
         for _, module in pairs(getloadedmodules()) do
             if module.Name == "remotes" then
                 local ok, req = pcall(require, module)
-                if ok and req and req.default and req.default.Client then
+                if ok and type(req) == "table" and req.default and req.default.Client then
                     Client = req.default.Client
                     break
                 end
@@ -247,6 +339,7 @@ local function SetupReach()
     local oldGet = Client.Get
     Client.Get = function(self, remoteName)
         local call = oldGet(self, remoteName)
+        
         if remoteName == "SwordHit" then
             return {
                 instance = call.instance,
@@ -256,18 +349,20 @@ local function SetupReach()
                         local selfpos = validate.selfPosition.value
                         local targetpos = validate.targetPosition.value
                         
-                        -- Optimized distance calculation
+                        -- Optimized single distance calculation
                         local distance = (selfpos - targetpos).Magnitude
-                        if distance > BASE_DISTANCE then
+                        
+                        if distance > BASE_DISTANCE + 0.1 then -- Small tolerance
                             validate.raycast = validate.raycast or {}
-                            local direction = CFrame_lookAt(selfpos, targetpos).LookVector
-                            validate.selfPosition.value = selfpos + (direction * math_max(distance - BASE_DISTANCE, 0))
+                            validate.selfPosition.value = calculateReachExtension(selfpos, targetpos, distance)
                         end
                     end
+                    
                     return call:SendToServer(attackTable, ...)
                 end
             }
         end
+        
         return call
     end
     
@@ -275,7 +370,7 @@ local function SetupReach()
     return true
 end
 
--- Optimized ApplyReach with caching
+-- Enhanced ApplyReach with change detection
 local function ApplyReach()
     if not Reach.CachedConstants then
         local success, constants = pcall(function() 
@@ -288,62 +383,217 @@ local function ApplyReach()
         end
     end
     
-    if Reach.CachedConstants then
-        Reach.CachedConstants.RAYCAST_SWORD_CHARACTER_DISTANCE = Reach.Enabled and (Reach.Range + 2) or Reach.OriginalRaycastDistance
-        return true
+    local newDistance = Reach.Enabled and (Reach.Range + 2) or Reach.OriginalRaycastDistance
+    
+    -- Only update if changed beyond tolerance
+    if not Reach.LastAppliedRange or math.abs(Reach.LastAppliedRange - newDistance) > RANGE_TOLERANCE then
+        Reach.CachedConstants.RAYCAST_SWORD_CHARACTER_DISTANCE = newDistance
+        Reach.LastAppliedRange = newDistance
     end
-    return false
+    
+    return true
 end
 
--- Faster ToggleReach with reduced overhead
+-- Optimized ToggleReach
 local function ToggleReach()
     Reach.Enabled = not Reach.Enabled
     
-    -- Apply changes immediately without extra function calls
+    -- Immediate application without extra checks
     if Reach.CachedConstants then
         Reach.CachedConstants.RAYCAST_SWORD_CHARACTER_DISTANCE = Reach.Enabled and (Reach.Range + 2) or Reach.OriginalRaycastDistance
+        Reach.LastAppliedRange = nil -- Force update next time
     end
     
-    -- Update GUI efficiently
-    if ScreenGui then
-        local ToggleButton = ScreenGui:FindFirstChild("ToggleButton", true)
-        if ToggleButton then
-            ToggleButton.Text = Reach.Enabled and "Reach: ON" or "Reach: OFF"
-            ToggleButton.BackgroundColor3 = Reach.Enabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(60,60,60)
+    -- Batch GUI updates
+    task_defer(function()
+        if ScreenGui then
+            local ToggleButton = ScreenGui:FindFirstChild("ToggleButton", true)
+            if ToggleButton then
+                ToggleButton.Text = Reach.Enabled and "Reach: ON" or "Reach: OFF"
+                ToggleButton.BackgroundColor3 = Reach.Enabled and Color3_fromRGB(0,170,0) or Color3_fromRGB(60,60,60)
+            end
         end
-    end
-    
-    notifyReachState(Reach.Enabled)
+        
+        notifyReachState(Reach.Enabled)
+    end)
 end
 
--- Optimized range update
+-- Improved range update with validation
 local function updateReach(value)
     local numValue = tonumber(value)
     if numValue then
-        Reach.Range = math_clamp(numValue, MIN_RANGE, MAX_RANGE)
-        if ScreenGui then
-            local RangeTextbox = ScreenGui:FindFirstChild("TextBox", true)
-            if RangeTextbox then
-                RangeTextbox.Text = tostring(Reach.Range)
+        local clampedValue = math_clamp(math_floor(numValue * 100) / 100, MIN_RANGE, MAX_RANGE) -- 2 decimal precision
+        if math.abs(Reach.Range - clampedValue) > 0.01 then -- Only update if significantly changed
+            Reach.Range = clampedValue
+            
+            if ScreenGui then
+                local RangeTextbox = ScreenGui:FindFirstChild("TextBox", true)
+                if RangeTextbox then
+                    RangeTextbox.Text = tostring(Reach.Range)
+                end
+            end
+            
+            if Reach.Enabled then 
+                ApplyReach()
             end
         end
-        if Reach.Enabled then 
-            ApplyReach()
+    elseif ScreenGui then
+        local RangeTextbox = ScreenGui:FindFirstChild("TextBox", true)
+        if RangeTextbox then
+            RangeTextbox.Text = tostring(Reach.Range)
         end
     end
 end
 
--- ---------- Toggle GUI ----------
+-- Optimized GUI creation with object pooling
+local ScreenGui = nil
+
+local function CreateGUI()
+    local uiParent = (type(gethui) == "function" and gethui()) or 
+                    (type(get_hidden_ui) == "function" and get_hidden_ui()) or 
+                    game:GetService("CoreGui")
+    
+    -- Reuse existing GUI
+    local existingGui = uiParent:FindFirstChild("ReachGUI")
+    if existingGui then
+        ScreenGui = existingGui
+        ScreenGui.Enabled = false
+        return ScreenGui
+    end
+
+    -- Create new optimized GUI
+    ScreenGui = Instance_new("ScreenGui")
+    ScreenGui.Name = "ReachGUI"
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.Enabled = false
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+    if type(syn) == "table" and type(syn.protect_gui) == "function" then
+        pcall(syn.protect_gui, ScreenGui)
+    end
+    ScreenGui.Parent = uiParent
+
+    -- Main container
+    local MainFrame = Instance_new("Frame")
+    MainFrame.Size = UDim2_new(0, 240, 0, 180)
+    MainFrame.Position = UDim2_new(0, 10, 0, 10)
+    MainFrame.BackgroundColor3 = Color3_fromRGB(30, 30, 30)
+    MainFrame.BorderSizePixel = 0
+    MainFrame.Active = true
+    MainFrame.Draggable = true
+    MainFrame.Parent = ScreenGui
+
+    local Corner = Instance_new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 8)
+    Corner.Parent = MainFrame
+
+    -- Title (reuse existing creation pattern)
+    local Title = Instance_new("TextLabel")
+    Title.Size = UDim2_new(1, 0, 0, 30)
+    Title.BackgroundColor3 = Color3_fromRGB(45, 45, 45)
+    Title.TextColor3 = Color3_fromRGB(255, 255, 255)
+    Title.Text = "Reach Settings"
+    Title.Font = Enum.Font.GothamBold
+    Title.TextSize = 14
+    Title.Parent = MainFrame
+
+    local TitleCorner = Instance_new("UICorner")
+    TitleCorner.CornerRadius = UDim.new(0, 8)
+    TitleCorner.Parent = Title
+
+    -- Toggle Button
+    local ToggleButton = Instance_new("TextButton")
+    ToggleButton.Name = "ToggleButton"
+    ToggleButton.Size = UDim2_new(0.8, 0, 0, 30)
+    ToggleButton.Position = UDim2_new(0.1, 0, 0, 40)
+    ToggleButton.BackgroundColor3 = Reach.Enabled and Color3_fromRGB(0, 170, 0) or Color3_fromRGB(60, 60, 60)
+    ToggleButton.TextColor3 = Color3_fromRGB(255, 255, 255)
+    ToggleButton.Text = Reach.Enabled and "Reach: ON" or "Reach: OFF"
+    ToggleButton.Font = Enum.Font.Gotham
+    ToggleButton.TextSize = 12
+    ToggleButton.Parent = MainFrame
+
+    local ToggleCorner = Instance_new("UICorner")
+    ToggleCorner.CornerRadius = UDim.new(0, 6)
+    ToggleCorner.Parent = ToggleButton
+
+    -- Range controls (reuse existing pattern)
+    local RangeLabel = Instance_new("TextLabel")
+    RangeLabel.Size = UDim2_new(0.8, 0, 0, 20)
+    RangeLabel.Position = UDim2_new(0.1, 0, 0, 80)
+    RangeLabel.BackgroundTransparency = 1
+    RangeLabel.TextColor3 = Color3_fromRGB(255, 255, 255)
+    RangeLabel.Text = "Range:"
+    RangeLabel.Font = Enum.Font.Gotham
+    RangeLabel.TextSize = 12
+    RangeLabel.TextXAlignment = Enum.TextXAlignment.Left
+    RangeLabel.Parent = MainFrame
+
+    local RangeTextbox = Instance_new("TextBox")
+    RangeTextbox.Size = UDim2_new(0, 70, 0, 20)
+    RangeTextbox.Position = UDim2_new(0.5, 0, 0, 80)
+    RangeTextbox.BackgroundColor3 = Color3_fromRGB(50, 50, 50)
+    RangeTextbox.TextColor3 = Color3_fromRGB(255, 255, 255)
+    RangeTextbox.Text = tostring(Reach.Range)
+    RangeTextbox.Font = Enum.Font.Gotham
+    RangeTextbox.TextSize = 12
+    RangeTextbox.PlaceholderText = "13.85"
+    RangeTextbox.Parent = MainFrame
+
+    local TextboxCorner = Instance_new("UICorner")
+    TextboxCorner.CornerRadius = UDim.new(0, 4)
+    TextboxCorner.Parent = RangeTextbox
+
+    local StudsLabel = Instance_new("TextLabel")
+    StudsLabel.Size = UDim2_new(0, 30, 0, 20)
+    StudsLabel.Position = UDim2_new(0.8, 0, 0, 80)
+    StudsLabel.BackgroundTransparency = 1
+    StudsLabel.TextColor3 = Color3_fromRGB(200, 200, 200)
+    StudsLabel.Text = "studs"
+    StudsLabel.Font = Enum.Font.Gotham
+    StudsLabel.TextSize = 10
+    StudsLabel.TextXAlignment = Enum.TextXAlignment.Left
+    StudsLabel.Parent = MainFrame
+
+    -- Keybind Info
+    local KeybindInfo = Instance_new("TextLabel")
+    KeybindInfo.Size = UDim2_new(0.8, 0, 0, 40)
+    KeybindInfo.Position = UDim2_new(0.1, 0, 0, 110)
+    KeybindInfo.BackgroundTransparency = 1
+    KeybindInfo.TextColor3 = Color3_fromRGB(150, 150, 150)
+    KeybindInfo.Text = "Keybinds:\n= Toggle Reach | F5 Show/Hide GUI"
+    KeybindInfo.Font = Enum.Font.Gotham
+    KeybindInfo.TextSize = 10
+    KeybindInfo.TextXAlignment = Enum.TextXAlignment.Left
+    KeybindInfo.TextYAlignment = Enum.TextYAlignment.Top
+    KeybindInfo.Parent = MainFrame
+
+    -- Event connections
+    RangeTextbox.FocusLost:Connect(function(enterPressed)
+        if enterPressed then 
+            updateReach(RangeTextbox.Text) 
+        end
+    end)
+
+    ToggleButton.MouseButton1Click:Connect(ToggleReach)
+
+    return ScreenGui
+end
+
+-- Toggle GUI function
 local function ToggleGUI()
     if ScreenGui then
         ScreenGui.Enabled = not ScreenGui.Enabled
     end
 end
 
--- ---------- Keybind Setup ----------
+-- Optimized keybind setup
+local Keybinds = {ToggleReach = Enum.KeyCode.Equals, ToggleGUI = Enum.KeyCode.F5}
+
 local function SetupKeybinds()
     UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if gameProcessed then return end
+        
         if input.KeyCode == Keybinds.ToggleReach then
             ToggleReach()
         elseif input.KeyCode == Keybinds.ToggleGUI then
@@ -352,157 +602,29 @@ local function SetupKeybinds()
     end)
 end
 
-local function CreateGUI()
-    -- Check if GUI already exists before creating a new one
-    local uiParent = (type(gethui)=="function" and gethui()) or (type(get_hidden_ui)=="function" and get_hidden_ui()) or game:GetService("CoreGui")
-    
-    -- Look for existing GUI
-    local existingGui = uiParent:FindFirstChild("ReachGUI")
-    if existingGui then
-        ScreenGui = existingGui
-        ScreenGui.Enabled = false -- Ensure it starts hidden
-        return ScreenGui
-    end
-
-    -- Only create new GUI if it doesn't exist
-    ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "ReachGUI"
-    ScreenGui.ResetOnSpawn = false
-    ScreenGui.Enabled = false  -- Start with GUI hidden
-
-    if type(syn)=="table" and type(syn.protect_gui)=="function" then
-        pcall(function() syn.protect_gui(ScreenGui) end)
-    end
-    ScreenGui.Parent = uiParent
-
-    -- Rest of your GUI creation code...
-    local MainFrame = Instance.new("Frame")
-    MainFrame.Size = UDim2.new(0,240,0,180)
-    MainFrame.Position = UDim2.new(0,10,0,10)
-    MainFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
-    MainFrame.BorderSizePixel = 0
-    MainFrame.Parent = ScreenGui
-    MainFrame.Active = true
-    MainFrame.Draggable = true
-
-    local Corner = Instance.new("UICorner")
-    Corner.CornerRadius = UDim.new(0,8)
-    Corner.Parent = MainFrame
-
-    local Title = Instance.new("TextLabel")
-    Title.Size = UDim2.new(1,0,0,30)
-    Title.BackgroundColor3 = Color3.fromRGB(45,45,45)
-    Title.TextColor3 = Color3.fromRGB(255,255,255)
-    Title.Text = "Reach Settings"
-    Title.Font = Enum.Font.GothamBold
-    Title.TextSize = 14
-    Title.Parent = MainFrame
-
-    local TitleCorner = Instance.new("UICorner")
-    TitleCorner.CornerRadius = UDim.new(0,8)
-    TitleCorner.Parent = Title
-
-    -- Toggle Button
-    local ToggleButton = Instance.new("TextButton")
-    ToggleButton.Name = "ToggleButton"
-    ToggleButton.Size = UDim2.new(0.8,0,0,30)
-    ToggleButton.Position = UDim2.new(0.1,0,0,40)
-    ToggleButton.BackgroundColor3 = Reach.Enabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(60,60,60)
-    ToggleButton.TextColor3 = Color3.fromRGB(255,255,255)
-    ToggleButton.Text = Reach.Enabled and "Reach: ON" or "Reach: OFF"
-    ToggleButton.Font = Enum.Font.Gotham
-    ToggleButton.TextSize = 12
-    ToggleButton.Parent = MainFrame
-
-    local ToggleCorner = Instance.new("UICorner")
-    ToggleCorner.CornerRadius = UDim.new(0,6)
-    ToggleCorner.Parent = ToggleButton
-
-    -- Range Label
-    local RangeLabel = Instance.new("TextLabel")
-    RangeLabel.Size = UDim2.new(0.8,0,0,20)
-    RangeLabel.Position = UDim2.new(0.1,0,0,80)
-    RangeLabel.BackgroundTransparency = 1
-    RangeLabel.TextColor3 = Color3.fromRGB(255,255,255)
-    RangeLabel.Text = "Range:"
-    RangeLabel.Font = Enum.Font.Gotham
-    RangeLabel.TextSize = 12
-    RangeLabel.TextXAlignment = Enum.TextXAlignment.Left
-    RangeLabel.Parent = MainFrame
-
-    -- Range TextBox
-    local RangeTextbox = Instance.new("TextBox")
-    RangeTextbox.Size = UDim2.new(0,70,0,20)
-    RangeTextbox.Position = UDim2.new(0.5,0,0,80)
-    RangeTextbox.BackgroundColor3 = Color3.fromRGB(50,50,50)
-    RangeTextbox.TextColor3 = Color3.fromRGB(255,255,255)
-    RangeTextbox.Text = tostring(Reach.Range)
-    RangeTextbox.Font = Enum.Font.Gotham
-    RangeTextbox.TextSize = 12
-    RangeTextbox.PlaceholderText = "13.72"
-    RangeTextbox.Parent = MainFrame
-
-    local TextboxCorner = Instance.new("UICorner")
-    TextboxCorner.CornerRadius = UDim.new(0,4)
-    TextboxCorner.Parent = RangeTextbox
-
-    local StudsLabel = Instance.new("TextLabel")
-    StudsLabel.Size = UDim2.new(0,30,0,20)
-    StudsLabel.Position = UDim2.new(0.8,0,0,80)
-    StudsLabel.BackgroundTransparency = 1
-    StudsLabel.TextColor3 = Color3.fromRGB(200,200,200)
-    StudsLabel.Text = "studs"
-    StudsLabel.Font = Enum.Font.Gotham
-    StudsLabel.TextSize = 10
-    StudsLabel.TextXAlignment = Enum.TextXAlignment.Left
-    StudsLabel.Parent = MainFrame
-
-    -- Keybind Info
-    local KeybindInfo = Instance.new("TextLabel")
-    KeybindInfo.Size = UDim2.new(0.8,0,0,40)
-    KeybindInfo.Position = UDim2.new(0.1,0,0,110)
-    KeybindInfo.BackgroundTransparency = 1
-    KeybindInfo.TextColor3 = Color3.fromRGB(150,150,150)
-    KeybindInfo.Text = "Keybinds:\n= Toggle Reach | F5 Show/Hide GUI"
-    KeybindInfo.Font = Enum.Font.Gotham
-    KeybindInfo.TextSize = 10
-    KeybindInfo.TextXAlignment = Enum.TextXAlignment.Left
-    KeybindInfo.TextYAlignment = Enum.TextYAlignment.Top
-    KeybindInfo.Parent = MainFrame
-
-    -- Update Reach function
-    local function updateReach(value)
-        local numValue = tonumber(value)
-        if numValue then
-            numValue = math.clamp(numValue,12,18)
-            Reach.Range = numValue
-            RangeTextbox.Text = tostring(numValue)
-            if Reach.Enabled then ApplyReach() end
-        else
-            RangeTextbox.Text = tostring(Reach.Range)
-        end
-    end
-
-    RangeTextbox.FocusLost:Connect(function(enterPressed)
-        if enterPressed then updateReach(RangeTextbox.Text) end
-    end)
-
-    ToggleButton.MouseButton1Click:Connect(function()
-        ToggleReach()
-    end)
-
-    return ScreenGui
-end
-
--- ---------- Initialization ----------
+-- Enhanced initialization with proper error handling
 local function Initialize()
-    WaitForGameLoad()
+    local success, err = pcall(WaitForGameLoad)
+    if not success then
+        warn("Game load wait failed:", err)
+        return
+    end
+    
     notifyExecuted()
     entitylib.start()
-    SetupReach()
-    ApplyReach()
+    
+    -- Setup reach with retries
+    for attempt = 1, 3 do
+        if SetupReach() then
+            ApplyReach()
+            break
+        end
+        if attempt < 3 then task_wait(1) end
+    end
+    
     ScreenGui = CreateGUI()
     SetupKeybinds()
 end
 
+-- Start the optimized script
 Initialize()

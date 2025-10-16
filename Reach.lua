@@ -281,19 +281,29 @@ local function SetupKeybinds()
     end)
 end
 
--- ---------- GUI Creation ----------
 local function CreateGUI()
+    -- Check if GUI already exists before creating a new one
+    local uiParent = (type(gethui)=="function" and gethui()) or (type(get_hidden_ui)=="function" and get_hidden_ui()) or game:GetService("CoreGui")
+    
+    -- Look for existing GUI
+    local existingGui = uiParent:FindFirstChild("ReachGUI")
+    if existingGui then
+        ScreenGui = existingGui
+        return ScreenGui
+    end
+
+    -- Only create new GUI if it doesn't exist
     ScreenGui = Instance.new("ScreenGui")
     ScreenGui.Name = "ReachGUI"
     ScreenGui.ResetOnSpawn = false
     ScreenGui.Enabled = false
 
-    local uiParent = (type(gethui)=="function" and gethui()) or (type(get_hidden_ui)=="function" and get_hidden_ui()) or game:GetService("CoreGui")
     if type(syn)=="table" and type(syn.protect_gui)=="function" then
         pcall(function() syn.protect_gui(ScreenGui) end)
     end
     ScreenGui.Parent = uiParent
 
+    -- Rest of your GUI creation code remains the same...
     local MainFrame = Instance.new("Frame")
     MainFrame.Size = UDim2.new(0,240,0,180)
     MainFrame.Position = UDim2.new(0,10,0,10)

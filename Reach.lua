@@ -198,7 +198,7 @@ entitylib.start = function()
 end
 
 -- Reach Config
-local Reach = {Enabled=true, Range=13.66, OriginalRaycastDistance=14.4}
+local Reach = {Enabled=true, Range=13.72, OriginalRaycastDistance=14.4}
 
 -- Setup Keybinds
 local Keybinds = {ToggleReach=Enum.KeyCode.Equals, ToggleGUI=Enum.KeyCode.F5}
@@ -370,7 +370,7 @@ local function CreateGUI()
     RangeTextbox.Text = tostring(Reach.Range)
     RangeTextbox.Font = Enum.Font.Gotham
     RangeTextbox.TextSize = 12
-    RangeTextbox.PlaceholderText = "13.66"
+    RangeTextbox.PlaceholderText = "13.72"
     RangeTextbox.Parent = MainFrame
 
     local TextboxCorner = Instance.new("UICorner")

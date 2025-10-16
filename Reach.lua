@@ -198,7 +198,21 @@ entitylib.start = function()
 end
 
 -- Reach Config
-local Reach = {Enabled=true, Range=13.72, OriginalRaycastDistance=14.4}
+local Reach = {
+    Enabled = true,
+    Range = 13.72,
+    OriginalRaycastDistance = 14.4,
+    CachedConstants = nil,
+    CachedClient = nil
+}
+local BASE_DISTANCE = 14.399
+local MIN_RANGE = 12
+local MAX_RANGE = 18
+
+local Vector3_new = Vector3.new
+local CFrame_lookAt = CFrame.lookAt
+local math_max = math.max
+local math_clamp = math.clamp
 
 -- Setup Keybinds
 local Keybinds = {ToggleReach=Enum.KeyCode.Equals, ToggleGUI=Enum.KeyCode.F5}
@@ -206,54 +220,91 @@ local ScreenGui = nil
 
 -- Reach Setup (Client Hook)
 local function SetupReach()
+    if Reach.CachedClient then return true end
+    
     local Client
-    local success, result = pcall(function() return require(ReplicatedStorage.TS.remotes).default.Client end)
-    if success then Client=result else
-        for _,module in pairs(getloadedmodules()) do
-            if module.Name=="remotes" then
-                local ok, req = pcall(require,module)
+    local success, result = pcall(function() 
+        return require(ReplicatedStorage.TS.remotes).default.Client 
+    end)
+    
+    if success then 
+        Client = result 
+    else
+        -- Faster module scanning
+        for _, module in pairs(getloadedmodules()) do
+            if module.Name == "remotes" then
+                local ok, req = pcall(require, module)
                 if ok and req and req.default and req.default.Client then
-                    Client=req.default.Client
+                    Client = req.default.Client
                     break
                 end
             end
         end
     end
+    
     if not Client then return false end
+    
     local oldGet = Client.Get
     Client.Get = function(self, remoteName)
         local call = oldGet(self, remoteName)
-        if remoteName=="SwordHit" then
+        if remoteName == "SwordHit" then
             return {
-                instance=call.instance,
-                SendToServer=function(_, attackTable,...)
-                    local selfpos=attackTable.validate.selfPosition.value
-                    local targetpos=attackTable.validate.targetPosition.value
+                instance = call.instance,
+                SendToServer = function(_, attackTable, ...)
                     if Reach.Enabled then
-                        attackTable.validate.raycast=attackTable.validate.raycast or {}
-                        attackTable.validate.selfPosition.value = attackTable.validate.selfPosition.value + CFrame.lookAt(selfpos,targetpos).LookVector*math.max((selfpos-targetpos).Magnitude-14.399,0)
+                        local validate = attackTable.validate
+                        local selfpos = validate.selfPosition.value
+                        local targetpos = validate.targetPosition.value
+                        
+                        -- Optimized distance calculation
+                        local distance = (selfpos - targetpos).Magnitude
+                        if distance > BASE_DISTANCE then
+                            validate.raycast = validate.raycast or {}
+                            local direction = CFrame_lookAt(selfpos, targetpos).LookVector
+                            validate.selfPosition.value = selfpos + (direction * math_max(distance - BASE_DISTANCE, 0))
+                        end
                     end
-                    return call:SendToServer(attackTable,...)
+                    return call:SendToServer(attackTable, ...)
                 end
             }
         end
         return call
     end
+    
+    Reach.CachedClient = Client
     return true
 end
 
+-- Optimized ApplyReach with caching
 local function ApplyReach()
-    local success, constants = pcall(function() return require(ReplicatedStorage.TS.combat["combat-constant"]).CombatConstant end)
-    if success and constants then
-        constants.RAYCAST_SWORD_CHARACTER_DISTANCE = Reach.Enabled and (Reach.Range+2) or Reach.OriginalRaycastDistance
+    if not Reach.CachedConstants then
+        local success, constants = pcall(function() 
+            return require(ReplicatedStorage.TS.combat["combat-constant"]).CombatConstant 
+        end)
+        if success then
+            Reach.CachedConstants = constants
+        else
+            return false
+        end
+    end
+    
+    if Reach.CachedConstants then
+        Reach.CachedConstants.RAYCAST_SWORD_CHARACTER_DISTANCE = Reach.Enabled and (Reach.Range + 2) or Reach.OriginalRaycastDistance
         return true
     end
     return false
 end
--- ---------- Toggle Reach ----------
+
+-- Faster ToggleReach with reduced overhead
 local function ToggleReach()
     Reach.Enabled = not Reach.Enabled
-    ApplyReach()
+    
+    -- Apply changes immediately without extra function calls
+    if Reach.CachedConstants then
+        Reach.CachedConstants.RAYCAST_SWORD_CHARACTER_DISTANCE = Reach.Enabled and (Reach.Range + 2) or Reach.OriginalRaycastDistance
+    end
+    
+    -- Update GUI efficiently
     if ScreenGui then
         local ToggleButton = ScreenGui:FindFirstChild("ToggleButton", true)
         if ToggleButton then
@@ -261,7 +312,25 @@ local function ToggleReach()
             ToggleButton.BackgroundColor3 = Reach.Enabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(60,60,60)
         end
     end
+    
     notifyReachState(Reach.Enabled)
+end
+
+-- Optimized range update
+local function updateReach(value)
+    local numValue = tonumber(value)
+    if numValue then
+        Reach.Range = math_clamp(numValue, MIN_RANGE, MAX_RANGE)
+        if ScreenGui then
+            local RangeTextbox = ScreenGui:FindFirstChild("TextBox", true)
+            if RangeTextbox then
+                RangeTextbox.Text = tostring(Reach.Range)
+            end
+        end
+        if Reach.Enabled then 
+            ApplyReach()
+        end
+    end
 end
 
 -- ---------- Toggle GUI ----------

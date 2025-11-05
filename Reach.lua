@@ -259,7 +259,7 @@ entitylib.start = function()
     entitylib.Running = true
 end
 
--- FIXED Reach Configuration - Working reach with accurate blocking
+-- FIXED Reach Configuration
 local Reach = {
     Enabled = true,
     Range = 15.35,
@@ -275,25 +275,26 @@ local BASE_DISTANCE = 14.399
 local MIN_RANGE = 12
 local MAX_RANGE = 18
 
--- FIXED: Working reach extension calculation
+-- FIXED: Better reach extension calculation
 local function calculateReachExtension(selfpos, targetpos, currentDistance, maxRange)
     if currentDistance <= BASE_DISTANCE then 
-        return selfpos, false
+        return selfpos, false -- No extension needed, don't block
     end
     
     -- Only extend if within our configured max range
     if currentDistance > maxRange then
-        return selfpos, true -- Block this hit
+        return selfpos, true -- Block this hit (out of range)
     end
     
+    -- Calculate how much we need to extend
     local direction = (targetpos - selfpos).Unit
     local extensionAmount = math_max(currentDistance - BASE_DISTANCE, 0)
     
-    -- Apply extension to make the hit register
-    return selfpos + (direction * (extensionAmount * 1.02)), false
+    -- Apply extension with slight buffer for hit registration
+    return selfpos + (direction * extensionAmount), false
 end
 
--- FIXED: Working reach with proper extension
+-- FIXED: Improved reach setup with better validation
 local function SetupReach()
     if Reach.CachedClient then return true end
     
@@ -342,22 +343,23 @@ local function SetupReach()
                     local targetpos = validate.targetPosition.value
                     local distance = (selfpos - targetpos).Magnitude
                     
-                    -- FIXED: Calculate extension and check if we should block
-                    local newSelfPos, shouldBlock = calculateReachExtension(selfpos, targetpos, distance, Reach.Range)
-                    
-                    if shouldBlock then
+                    -- FIXED: Better range validation
+                    if distance > Reach.Range then
                         -- Block hits beyond our configured range
                         return nil
                     end
                     
-                    -- Apply the reach extension
-                    validate.selfPosition.value = newSelfPos
-                    
-                    -- Also update raycast for better hit registration
-                    if not validate.raycast then
-                        validate.raycast = {}
+                    -- FIXED: Only extend if beyond normal range but within our reach
+                    if distance > BASE_DISTANCE then
+                        local newSelfPos = calculateReachExtension(selfpos, targetpos, distance, Reach.Range)
+                        validate.selfPosition.value = newSelfPos
+                        
+                        -- Update raycast for better validation
+                        if not validate.raycast then
+                            validate.raycast = {}
+                        end
+                        validate.raycast.distance = math_max(distance + 1, BASE_DISTANCE + 1)
                     end
-                    validate.raycast.distance = distance + 2
                     
                     Reach.LastHitTime = currentTime
                     return originalSend(call, attackTable, ...)

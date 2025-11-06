@@ -259,10 +259,10 @@ entitylib.start = function()
     entitylib.Running = true
 end
 
--- FIXED Reach Configuration
+-- FIXED Reach Configuration - No hidden +2 studs
 local Reach = {
     Enabled = true,
-    Range = 13.20,
+    Range = 15.20, -- Default set to 15.20 as requested
     OriginalRaycastDistance = 14.4,
     CachedConstants = nil,
     CachedClient = nil,
@@ -272,29 +272,24 @@ local Reach = {
 }
 
 local BASE_DISTANCE = 14.399
-local MIN_RANGE = 12
-local MAX_RANGE = 18
+local MIN_RANGE = 14.4  -- Minimum is now normal reach
+local MAX_RANGE = 18.0
 
--- FIXED: Better reach extension calculation
+-- FIXED: Clean reach extension calculation
 local function calculateReachExtension(selfpos, targetpos, currentDistance, maxRange)
     if currentDistance <= BASE_DISTANCE then 
-        return selfpos, false -- No extension needed, don't block
-    end
-    
-    -- Only extend if within our configured max range
-    if currentDistance > maxRange then
-        return selfpos, true -- Block this hit (out of range)
+        return selfpos -- No extension needed
     end
     
     -- Calculate how much we need to extend
     local direction = (targetpos - selfpos).Unit
     local extensionAmount = math_max(currentDistance - BASE_DISTANCE, 0)
     
-    -- Apply extension with slight buffer for hit registration
-    return selfpos + (direction * extensionAmount), false
+    -- Apply extension for hit registration
+    return selfpos + (direction * extensionAmount)
 end
 
--- FIXED: Improved reach setup with better validation
+-- FIXED: Simplified reach setup
 local function SetupReach()
     if Reach.CachedClient then return true end
     
@@ -343,22 +338,15 @@ local function SetupReach()
                     local targetpos = validate.targetPosition.value
                     local distance = (selfpos - targetpos).Magnitude
                     
-                    -- FIXED: Better range validation
+                    -- FIXED: Simple range validation - GUI value is actual reach
                     if distance > Reach.Range then
                         -- Block hits beyond our configured range
                         return nil
                     end
                     
-                    -- FIXED: Only extend if beyond normal range but within our reach
+                    -- Only extend if beyond normal range but within our reach
                     if distance > BASE_DISTANCE then
-                        local newSelfPos = calculateReachExtension(selfpos, targetpos, distance, Reach.Range)
-                        validate.selfPosition.value = newSelfPos
-                        
-                        -- Update raycast for better validation
-                        if not validate.raycast then
-                            validate.raycast = {}
-                        end
-                        validate.raycast.distance = math_max(distance + 1, BASE_DISTANCE + 1)
+                        validate.selfPosition.value = calculateReachExtension(selfpos, targetpos, distance, Reach.Range)
                     end
                     
                     Reach.LastHitTime = currentTime
@@ -374,6 +362,7 @@ local function SetupReach()
     return true
 end
 
+-- FIXED: No more +2 studs added
 local function ApplyReach()
     if not Reach.CachedConstants then
         local success, constants = pcall(function() 
@@ -386,7 +375,8 @@ local function ApplyReach()
         end
     end
     
-    local newDistance = Reach.Enabled and (Reach.Range + 2) or Reach.OriginalRaycastDistance
+    -- FIXED: GUI value is now the actual reach distance
+    local newDistance = Reach.Enabled and Reach.Range or Reach.OriginalRaycastDistance
     
     if not Reach.LastAppliedRange or math.abs(Reach.LastAppliedRange - newDistance) > 0.01 then
         Reach.CachedConstants.RAYCAST_SWORD_CHARACTER_DISTANCE = newDistance
@@ -400,7 +390,8 @@ local function ToggleReach()
     Reach.Enabled = not Reach.Enabled
     
     if Reach.CachedConstants then
-        Reach.CachedConstants.RAYCAST_SWORD_CHARACTER_DISTANCE = Reach.Enabled and (Reach.Range + 2) or Reach.OriginalRaycastDistance
+        -- FIXED: No more +2 studs
+        Reach.CachedConstants.RAYCAST_SWORD_CHARACTER_DISTANCE = Reach.Enabled and Reach.Range or Reach.OriginalRaycastDistance
         Reach.LastAppliedRange = nil
     end
     
@@ -529,7 +520,7 @@ local function CreateGUI()
     RangeTextbox.Text = tostring(Reach.Range)
     RangeTextbox.Font = Enum.Font.Gotham
     RangeTextbox.TextSize = 12
-    RangeTextbox.PlaceholderText = "13.20"
+    RangeTextbox.PlaceholderText = "15.20"
     RangeTextbox.Parent = MainFrame
 
     local TextboxCorner = Instance_new("UICorner")

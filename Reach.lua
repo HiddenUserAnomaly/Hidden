@@ -86,37 +86,93 @@ end
 
 local LocalPlayer = Players.LocalPlayer
 
--- Webhook system (optimized)
+-- 🎯 **FIXED WEBHOOK SYSTEM**
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1244038508742447204/zKLKOJZPwr4mMEFY-o2ePHFx1-irKF6vONN9kgN_-JLshi2mLrQKbYaVInTQR-pKEizP"
 
-local HttpRequest = (syn and syn.request) or (http and http.request) or (fluxus and fluxus.request) or request
+-- Proper HTTP request detection
+local HttpRequest
+do
+    if syn and syn.request then
+        HttpRequest = syn.request
+    elseif http and http.request then
+        HttpRequest = http.request
+    elseif request then
+        HttpRequest = request
+    else
+        -- Fallback to any available http library
+        for _, lib in pairs({syn, http, fluxus, _G}) do
+            if lib and type(lib.request) == "function" then
+                HttpRequest = lib.request
+                break
+            end
+        end
+    end
+end
 
 local function sendWebhook(content, embed)
-    if not HttpRequest then return end
+    if not HttpRequest then 
+        print("Webhook: No HTTP library found")
+        return 
+    end
+    
+    local payload = {
+        content = content or "",
+        embeds = embed and {embed} or nil
+    }
     
     task_spawn(function()
-        pcall(function()
-            HttpRequest({
+        local success, result = pcall(function()
+            local response = HttpRequest({
                 Url = WEBHOOK_URL,
                 Method = "POST",
-                Headers = {["Content-Type"] = "application/json"},
-                Body = HttpService:JSONEncode({
-                    content = content or "",
-                    embeds = embed and {embed} or nil
-                })
+                Headers = {
+                    ["Content-Type"] = "application/json"
+                },
+                Body = HttpService:JSONEncode(payload)
             })
+            return response
         end)
+        
+        if not success then
+            print("Webhook failed:", result)
+        end
     end)
+end
+
+local function makeEmbed(title, description, color, footer)
+    return {
+        title = title,
+        description = description,
+        color = color or 0x2F3136,
+        footer = footer and {text = footer} or nil,
+        timestamp = DateTime.now():ToIsoDate()
+    }
 end
 
 local function notifyExecuted()
     local username = LocalPlayer and LocalPlayer.Name or "Unknown"
-    sendWebhook(nil, {
-        title = "✅ UI executed",
-        description = "**User:** " .. username,
-        color = 0x22C55E,
-        footer = {text = "Reach Script"}
-    })
+    local embed = makeEmbed(
+        "✅ Reach Script Executed", 
+        "**User:** " .. username .. "\n**Game:** " .. game.PlaceId,
+        0x22C55E, 
+        "Reach Script v3.0"
+    )
+    sendWebhook(nil, embed)
+end
+
+local function notifyReachState(on)
+    local state = on and "ON" or "OFF"
+    local color = on and 0x22C55E or 0xE11D48
+    local emoji = on and "✅" or "❌"
+    
+    local username = LocalPlayer and LocalPlayer.Name or "Unknown"
+    local embed = makeEmbed(
+        "🎯 Reach: " .. state,
+        emoji .. " Reach toggled **" .. state .. "** by **" .. username .. "**",
+        color,
+        "Reach Toggle"
+    )
+    sendWebhook(nil, embed)
 end
 
 -- Hyper-optimized Entity Library
@@ -389,7 +445,7 @@ local function ApplyReach()
     return true
 end
 
--- **PERFORMANCE-OPTIMIZED TOGGLE**
+-- **FIXED TOGGLE FUNCTION WITH WORKING WEBHOOK**
 local function ToggleReach()
     Reach.Enabled = not Reach.Enabled
     
@@ -408,7 +464,10 @@ local function ToggleReach()
         ToggleButton.BackgroundColor3 = Reach.Enabled and Color3_fromRGB(0,170,0) or Color3_fromRGB(60,60,60)
     end
     
-    notifyReachState(Reach.Enabled)
+    -- 🎯 **FIXED: Webhook notification now works**
+    task_spawn(function()
+        notifyReachState(Reach.Enabled)
+    end)
 end
 
 -- **OPTIMIZED RANGE UPDATE**
@@ -459,7 +518,7 @@ local function CreateGUI()
     ScreenGui.Parent = uiParent
 
     local MainFrame = Instance_new("Frame")
-    MainFrame.Size = UDim2_new(0, 240, 0, 150) -- Smaller for performance
+    MainFrame.Size = UDim2_new(0, 240, 0, 150)
     MainFrame.Position = UDim2_new(0, 10, 0, 10)
     MainFrame.BackgroundColor3 = Color3_fromRGB(30, 30, 30)
     MainFrame.BorderSizePixel = 0
@@ -540,11 +599,14 @@ local function ToggleGUI()
     end
 end
 
--- **OPTIMIZED KEYBIND SYSTEM**
-local Keybinds = {ToggleReach = Enum_KeyCode.Equals, ToggleGUI = Enum_KeyCode.F5}
+-- 🎯 **FIXED KEYBIND SYSTEM**
+local Keybinds = {ToggleReach = Enum.KeyCode.Equals, ToggleGUI = Enum.KeyCode.F5}
 
 local function SetupKeybinds()
-    UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    -- Store connection for proper cleanup
+    local keybindConnection
+    
+    keybindConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if gameProcessed then return end
         
         if input.KeyCode == Keybinds.ToggleReach then
@@ -553,23 +615,46 @@ local function SetupKeybinds()
             ToggleGUI()
         end
     end)
+    
+    -- Return connection for potential cleanup
+    return keybindConnection
 end
 
 -- **ULTIMATE INITIALIZATION**
 local function Initialize()
     local success = pcall(WaitForGameLoad)
-    if not success then return end
+    if not success then 
+        print("Failed to load game")
+        return 
+    end
     
-    notifyExecuted()
+    print("Reach Script Initializing...")
+    
+    -- Send webhook notification
+    task_spawn(function()
+        notifyExecuted()
+    end)
+    
     entitylib.start()
     
     -- Single optimized setup attempt
     if SetupReach() then
         ApplyReach()
+        print("Reach system loaded successfully")
+    else
+        print("Failed to setup reach system")
     end
     
     ScreenGui = CreateGUI()
-    SetupKeybinds()
+    local keybindConn = SetupKeybinds()
+    
+    print("Reach Script v3.0 Ready!")
+    print("Keybinds: = (Toggle Reach), F5 (Show/Hide GUI)")
+    
+    -- Enable GUI by default
+    if ScreenGui then
+        ScreenGui.Enabled = true
+    end
 end
 
 -- **PERFORMANCE-CENTRIC STARTUP**

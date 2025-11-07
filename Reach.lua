@@ -259,37 +259,25 @@ entitylib.start = function()
     entitylib.Running = true
 end
 
--- FIXED Reach Configuration - No hidden +2 studs
+-- ENHANCED Reach Configuration with better hit registration
 local Reach = {
     Enabled = true,
-    Range = 15.15, -- Default set to 15.20 as requested
+    Range = 15.20, -- Default set to 15.20 as requested
     OriginalRaycastDistance = 14.4,
     CachedConstants = nil,
     CachedClient = nil,
     LastAppliedRange = nil,
     LastHitTime = 0,
-    HitCooldown = 0.15
+    HitCooldown = 0.15,
+    LastServerSwingTime = 0, -- For timing synchronization
+    LastSwingDelta = 0
 }
 
 local BASE_DISTANCE = 14.399
 local MIN_RANGE = 14.4  -- Minimum is now normal reach
 local MAX_RANGE = 18.0
 
--- FIXED: Clean reach extension calculation
-local function calculateReachExtension(selfpos, targetpos, currentDistance, maxRange)
-    if currentDistance <= BASE_DISTANCE then 
-        return selfpos -- No extension needed
-    end
-    
-    -- Calculate how much we need to extend
-    local direction = (targetpos - selfpos).Unit
-    local extensionAmount = math_max(currentDistance - BASE_DISTANCE, 0)
-    
-    -- Apply extension for hit registration
-    return selfpos + (direction * extensionAmount)
-end
-
--- FIXED: Simplified reach setup
+-- ENHANCED: Better reach setup with improved hit registration
 local function SetupReach()
     if Reach.CachedClient then return true end
     
@@ -338,18 +326,32 @@ local function SetupReach()
                     local targetpos = validate.targetPosition.value
                     local distance = (selfpos - targetpos).Magnitude
                     
-                    -- FIXED: Simple range validation - GUI value is actual reach
+                    -- ENHANCED: Simple range validation - GUI value is actual reach
                     if distance > Reach.Range then
                         -- Block hits beyond our configured range
                         return nil
                     end
                     
-                    -- Only extend if beyond normal range but within our reach
+                    -- ENHANCED: Better position extension for improved hit registration
                     if distance > BASE_DISTANCE then
-                        validate.selfPosition.value = calculateReachExtension(selfpos, targetpos, distance, Reach.Range)
+                        local direction = (targetpos - selfpos).Unit
+                        local extensionAmount = math_max(distance - BASE_DISTANCE, 0)
+                        
+                        -- Apply position extension (makes server think you're closer)
+                        validate.selfPosition.value = selfpos + (direction * extensionAmount)
+                        
+                        -- Enhanced raycast data for better server validation
+                        validate.raycast = validate.raycast or {}
+                        validate.raycast.cameraPosition = {value = validate.selfPosition.value}
+                        validate.raycast.cursorDirection = {value = direction}
+                        validate.raycast.distance = distance + 1 -- Slight overshoot for hit registration
                     end
                     
+                    -- Timing synchronization for better server processing
+                    Reach.LastServerSwingTime = workspace:GetServerTimeNow()
+                    Reach.LastSwingDelta = Reach.LastServerSwingTime - (Reach.LastServerSwingTime or 0)
                     Reach.LastHitTime = currentTime
+                    
                     return originalSend(call, attackTable, ...)
                 end
             }
@@ -397,6 +399,8 @@ local function ToggleReach()
     
     -- Reset cooldowns on toggle
     Reach.LastHitTime = 0
+    Reach.LastServerSwingTime = 0
+    Reach.LastSwingDelta = 0
     
     task_defer(function()
         if ScreenGui then
@@ -520,7 +524,7 @@ local function CreateGUI()
     RangeTextbox.Text = tostring(Reach.Range)
     RangeTextbox.Font = Enum.Font.Gotham
     RangeTextbox.TextSize = 12
-    RangeTextbox.PlaceholderText = "15.15"
+    RangeTextbox.PlaceholderText = "15.20"
     RangeTextbox.Parent = MainFrame
 
     local TextboxCorner = Instance_new("UICorner")

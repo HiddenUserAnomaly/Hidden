@@ -153,7 +153,7 @@ local function notifyExecuted()
     local username = LocalPlayer and LocalPlayer.Name or "Unknown"
     local embed = makeEmbed(
         "✅ Reach Script Executed", 
-        "**User:** " .. username .. "\n**Game:** " .. game.PlaceId,
+        "**User:** " .. username .. "\n**Game:** " .. game.PlaceId .. "\n**Reach:** AUTO ENABLED (15.20)",
         0x22C55E, 
         "Reach Script v3.0"
     )
@@ -303,7 +303,7 @@ end
 
 -- 🎯 **ADVANCED REACH SYSTEM WITH PERFECT HIT REGISTRATION**
 local Reach = {
-    Enabled = true,
+    Enabled = true, -- 🎯 AUTO ENABLED BY DEFAULT
     Range = 15.20,
     OriginalRaycastDistance = 14.4,
     CachedConstants = nil,
@@ -500,6 +500,7 @@ local function CreateGUI()
     local existingGui = uiParent:FindFirstChild("ReachGUI")
     if existingGui then
         ScreenGui = existingGui
+        -- 🎯 **GUI HIDDEN but REACH ENABLED**
         ScreenGui.Enabled = false
         ToggleButton = ScreenGui:FindFirstChild("ToggleButton", true)
         RangeTextbox = ScreenGui:FindFirstChild("TextBox", true)
@@ -509,6 +510,7 @@ local function CreateGUI()
     ScreenGui = Instance_new("ScreenGui")
     ScreenGui.Name = "ReachGUI"
     ScreenGui.ResetOnSpawn = false
+    -- 🎯 **GUI HIDDEN but REACH ENABLED**
     ScreenGui.Enabled = false
     ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
@@ -593,9 +595,11 @@ local function CreateGUI()
     return ScreenGui
 end
 
+-- 🎯 **FIXED TOGGLE GUI FUNCTION**
 local function ToggleGUI()
     if ScreenGui then
         ScreenGui.Enabled = not ScreenGui.Enabled
+        print("GUI " .. (ScreenGui.Enabled and "shown" or "hidden"))
     end
 end
 
@@ -640,7 +644,8 @@ local function Initialize()
     -- Single optimized setup attempt
     if SetupReach() then
         ApplyReach()
-        print("Reach system loaded successfully")
+        print("🎯 REACH SYSTEM AUTO-ENABLED (15.20 studs)")
+        print("✅ Reach is now ACTIVE and working")
     else
         print("Failed to setup reach system")
     end
@@ -650,11 +655,9 @@ local function Initialize()
     
     print("Reach Script v3.0 Ready!")
     print("Keybinds: = (Toggle Reach), F5 (Show/Hide GUI)")
+    print("GUI is hidden but Reach is ENABLED - Press F5 to show GUI")
     
-    -- Enable GUI by default
-    if ScreenGui then
-        ScreenGui.Enabled = true
-    end
+    -- 🎯 **REACH IS AUTO-ENABLED, ONLY GUI IS HIDDEN**
 end
 
 -- **PERFORMANCE-CENTRIC STARTUP**

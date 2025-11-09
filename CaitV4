@@ -12,6 +12,7 @@ if type(queue_on_teleport) == "function" then
         loadstring(game:HttpGet("https://raw.githubusercontent.com/HiddenUserAnomaly/Hidden/main/Reach.lua"))()
     ]])
 end
+
 local Players = game:GetService('Players')
 local ReplicatedStorage = game:GetService('ReplicatedStorage')
 local Workspace = game:GetService('Workspace')
@@ -35,69 +36,86 @@ local PERK_PRIORITIES = {
     ['ABSOLUTION'] = 30, -- Contract menu closes (low priority)
 }
 
--- Create GUI (initially hidden)
-local gui = Instance.new('ScreenGui')
-gui.Name = 'SmartContractHunter'
-gui.Parent = Players.LocalPlayer:WaitForChild('PlayerGui')
-gui.Enabled = false -- Start hidden
+-- Wait for game to fully load
+local function waitForGameLoad()
+    local localPlayer = Players.LocalPlayer
+    repeat
+        wait(1)
+    until localPlayer and localPlayer.Character and localPlayer.Character:FindFirstChild("Humanoid")
+    print("🎯 Game fully loaded - Starting Blood Assassin...")
+end
 
-local statusFrame = Instance.new('Frame')
-statusFrame.Size = UDim2.new(0, 450, 0, 250)
-statusFrame.Position = UDim2.new(0, 10, 0, 10)
-statusFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-statusFrame.BorderSizePixel = 0
-statusFrame.Parent = gui
+-- Create GUI with respawn protection
+local gui = nil
+local function createGUI()
+    -- Clean up old GUI if it exists
+    if _G.BloodAssassinGUI then
+        pcall(function() _G.BloodAssassinGUI:Destroy() end)
+    end
+    
+    gui = Instance.new('ScreenGui')
+    gui.Name = 'SmartContractHunter'
+    gui.Parent = Players.LocalPlayer:WaitForChild('PlayerGui')
+    gui.Enabled = false -- Start hidden
+    _G.BloodAssassinGUI = gui
 
-local statusTitle = Instance.new('TextLabel')
-statusTitle.Size = UDim2.new(1, 0, 0, 30)
-statusTitle.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-statusTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-statusTitle.Text = '🎯 Smart Contract Hunter - RANGE: '
-    .. MAX_DISTANCE
-    .. ' studs'
-statusTitle.Font = Enum.Font.GothamBold
-statusTitle.TextSize = 14
-statusTitle.Parent = statusFrame
+    local statusFrame = Instance.new('Frame')
+    statusFrame.Size = UDim2.new(0, 450, 0, 250)
+    statusFrame.Position = UDim2.new(0, 10, 0, 10)
+    statusFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    statusFrame.BorderSizePixel = 0
+    statusFrame.Parent = gui
 
-local statusText = Instance.new('TextLabel')
-statusText.Size = UDim2.new(1, -10, 0.6, -10)
-statusText.Position = UDim2.new(0, 5, 0, 35)
-statusText.BackgroundTransparency = 1
-statusText.TextColor3 = Color3.fromRGB(255, 255, 255)
-statusText.Text =
-    'GUI Hidden - Press Home to show\nScript Running - Press PageDown to toggle'
-statusText.Font = Enum.Font.Gotham
-statusText.TextSize = 12
-statusText.TextXAlignment = Enum.TextXAlignment.Left
-statusText.TextYAlignment = Enum.TextYAlignment.Top
-statusText.TextWrapped = true
-statusText.Parent = statusFrame
+    local statusTitle = Instance.new('TextLabel')
+    statusTitle.Size = UDim2.new(1, 0, 0, 30)
+    statusTitle.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    statusTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    statusTitle.Text = '🎯 Smart Contract Hunter - RANGE: ' .. MAX_DISTANCE .. ' studs'
+    statusTitle.Font = Enum.Font.GothamBold
+    statusTitle.TextSize = 14
+    statusTitle.Parent = statusFrame
 
-local perksText = Instance.new('TextLabel')
-perksText.Size = UDim2.new(1, -10, 0.3, -5)
-perksText.Position = UDim2.new(0, 5, 0.7, 0)
-perksText.BackgroundTransparency = 1
-perksText.TextColor3 = Color3.fromRGB(200, 200, 100)
-perksText.Text =
-    'Perk Priority: Dark Insight > Serrated > Vulnerable > Silence > Bounty'
-perksText.Font = Enum.Font.Gotham
-perksText.TextSize = 11
-perksText.TextXAlignment = Enum.TextXAlignment.Left
-perksText.TextYAlignment = Enum.TextYAlignment.Top
-perksText.TextWrapped = true
-perksText.Parent = statusFrame
+    local statusText = Instance.new('TextLabel')
+    statusText.Size = UDim2.new(1, -10, 0.6, -10)
+    statusText.Position = UDim2.new(0, 5, 0, 35)
+    statusText.BackgroundTransparency = 1
+    statusText.TextColor3 = Color3.fromRGB(255, 255, 255)
+    statusText.Text = 'GUI Hidden - Press Home to show\nScript Running - Press PageDown to toggle'
+    statusText.Font = Enum.Font.Gotham
+    statusText.TextSize = 12
+    statusText.TextXAlignment = Enum.TextXAlignment.Left
+    statusText.TextYAlignment = Enum.TextYAlignment.Top
+    statusText.TextWrapped = true
+    statusText.Parent = statusFrame
 
-local buttonFrame = Instance.new('Frame')
-buttonFrame.Size = UDim2.new(1, 0, 0, 40)
-buttonFrame.Position = UDim2.new(0, 0, 1, -40)
-buttonFrame.BackgroundTransparency = 1
-buttonFrame.Parent = statusFrame
+    local perksText = Instance.new('TextLabel')
+    perksText.Size = UDim2.new(1, -10, 0.3, -5)
+    perksText.Position = UDim2.new(0, 5, 0.7, 0)
+    perksText.BackgroundTransparency = 1
+    perksText.TextColor3 = Color3.fromRGB(200, 200, 100)
+    perksText.Text = 'Perk Priority: Dark Insight > Serrated > Vulnerable > Silence > Bounty'
+    perksText.Font = Enum.Font.Gotham
+    perksText.TextSize = 11
+    perksText.TextXAlignment = Enum.TextXAlignment.Left
+    perksText.TextYAlignment = Enum.TextYAlignment.Top
+    perksText.TextWrapped = true
+    perksText.Parent = statusFrame
+
+    local buttonFrame = Instance.new('Frame')
+    buttonFrame.Size = UDim2.new(1, 0, 0, 40)
+    buttonFrame.Position = UDim2.new(0, 0, 1, -40)
+    buttonFrame.BackgroundTransparency = 1
+    buttonFrame.Parent = statusFrame
+
+    return statusFrame, statusText, perksText, buttonFrame
+end
 
 -- Store available contracts and script state
 local availableContracts = {}
 local isScanning = false
 local isScriptEnabled = true
 local scanConnection = nil
+local statusFrame, statusText, perksText, buttonFrame = createGUI()
 
 local function createButton(text, position, callback)
     local button = Instance.new('TextButton')
@@ -114,7 +132,7 @@ local function createButton(text, position, callback)
 end
 
 local function updateStatus(message)
-    if not gui.Enabled then
+    if not gui or not gui.Enabled then
         return
     end
     pcall(function()
@@ -124,7 +142,7 @@ local function updateStatus(message)
 end
 
 local function updatePerksInfo(message)
-    if not gui.Enabled then
+    if not gui or not gui.Enabled then
         return
     end
     pcall(function()
@@ -143,20 +161,13 @@ local function findPlayerFromTarget(target)
 
         if typeof(target) == 'string' then
             for _, player in pairs(Players:GetPlayers()) do
-                if
-                    player.Name == target
-                    or string.lower(player.Name) == string.lower(target)
-                then
+                if player.Name == target or string.lower(player.Name) == string.lower(target) then
                     return player
                 end
             end
 
             for _, player in pairs(Players:GetPlayers()) do
-                if
-                    player.DisplayName == target
-                    or string.lower(player.DisplayName)
-                        == string.lower(target)
-                then
+                if player.DisplayName == target or string.lower(player.DisplayName) == string.lower(target) then
                     return player
                 end
             end
@@ -180,18 +191,12 @@ end
 -- Safe distance calculation
 local function getDistanceToPlayer(targetPlayer)
     local success, result = pcall(function()
-        if
-            not targetPlayer
-            or not targetPlayer.Character
-            or not targetPlayer.Character.PrimaryPart
-        then
+        if not targetPlayer or not targetPlayer.Character or not targetPlayer.Character.PrimaryPart then
             return math.huge
         end
 
         local localPlayer = Players.LocalPlayer
-        if
-            not localPlayer.Character or not localPlayer.Character.PrimaryPart
-        then
+        if not localPlayer.Character or not localPlayer.Character.PrimaryPart then
             return math.huge
         end
 
@@ -241,10 +246,7 @@ local function detectPerks(contract)
 
     -- Check for each perk in the text
     for perkName, _ in pairs(PERK_PRIORITIES) do
-        if
-            string.find(perkText, perkName)
-            or string.find(perkText, string.gsub(perkName, '_', ' '))
-        then
+        if string.find(perkText, perkName) or string.find(perkText, string.gsub(perkName, '_', ' ')) then
             table.insert(perks, perkName)
         end
     end
@@ -302,9 +304,7 @@ local function findBestContract()
             local targetInfo = contract.target
             local targetName = 'Unknown'
 
-            if
-                typeof(targetInfo) == 'Instance' and targetInfo:IsA('Player')
-            then
+            if typeof(targetInfo) == 'Instance' and targetInfo:IsA('Player') then
                 targetName = targetInfo.Name
             elseif typeof(targetInfo) == 'string' then
                 targetName = targetInfo
@@ -319,23 +319,10 @@ local function findBestContract()
                 local distance = getDistanceToPlayer(targetPlayer)
 
                 if isValid then
-                    local score, perks =
-                        calculateContractScore(contract, distance)
-                    local perkText = #perks > 0
-                            and ' [' .. table.concat(perks, ', ') .. ']'
-                        or ''
+                    local score, perks = calculateContractScore(contract, distance)
+                    local perkText = #perks > 0 and ' [' .. table.concat(perks, ', ') .. ']' or ''
 
-                    updateStatus(
-                        '✅ '
-                            .. targetName
-                            .. ' - '
-                            .. math.floor(distance)
-                            .. ' studs'
-                            .. perkText
-                            .. ' (Score: '
-                            .. math.floor(score)
-                            .. ')'
-                    )
+                    updateStatus('✅ ' .. targetName .. ' - ' .. math.floor(distance) .. ' studs' .. perkText .. ' (Score: ' .. math.floor(score) .. ')')
 
                     if score > bestScore then
                         bestScore = score
@@ -345,13 +332,7 @@ local function findBestContract()
                         bestPerks = perks
                     end
                 else
-                    updateStatus(
-                        '❌ '
-                            .. targetName
-                            .. ' - '
-                            .. math.floor(distance)
-                            .. ' studs'
-                    )
+                    updateStatus('❌ ' .. targetName .. ' - ' .. math.floor(distance) .. ' studs')
                 end
             else
                 updateStatus('❓ ' .. targetName .. ' - Player not found')
@@ -379,32 +360,15 @@ local function startContinuousScan()
 
         pcall(function()
             if #availableContracts > 0 then
-                local bestContract, distance, targetName, perks =
-                    findBestContract()
+                local bestContract, distance, targetName, perks = findBestContract()
 
                 if bestContract then
-                    local perkText = #perks > 0
-                            and ' with perks: ' .. table.concat(perks, ', ')
-                        or ''
-                    updateStatus(
-                        '🎯 FOUND: '
-                            .. targetName
-                            .. ' ('
-                            .. math.floor(distance)
-                            .. ' studs)'
-                            .. perkText
-                    )
+                    local perkText = #perks > 0 and ' with perks: ' .. table.concat(perks, ', ') or ''
+                    updateStatus('🎯 FOUND: ' .. targetName .. ' (' .. math.floor(distance) .. ' studs)' .. perkText)
 
-                    local remoteFolder = ReplicatedStorage
-                        :WaitForChild('rbxts_include')
-                        :WaitForChild('node_modules')
-                        :WaitForChild('@rbxts')
-                        :WaitForChild('net')
-                        :WaitForChild('out')
-                        :WaitForChild('_NetManaged')
+                    local remoteFolder = ReplicatedStorage:WaitForChild('rbxts_include'):WaitForChild('node_modules'):WaitForChild('@rbxts'):WaitForChild('net'):WaitForChild('out'):WaitForChild('_NetManaged')
 
-                    local selectRemote =
-                        remoteFolder:WaitForChild('BloodAssassinSelectContract')
+                    local selectRemote = remoteFolder:WaitForChild('BloodAssassinSelectContract')
                     local selectArgs = { contractId = bestContract.id }
 
                     local success, errorMsg = pcall(function()
@@ -413,27 +377,13 @@ local function startContinuousScan()
 
                     if success then
                         updateStatus('✅ SELECTED: ' .. targetName)
-                        updatePerksInfo(
-                            'Last Selection: '
-                                .. targetName
-                                .. ' | Perks: '
-                                .. (
-                                    #perks > 0 and table.concat(perks, ', ')
-                                    or 'None'
-                                )
-                        )
+                        updatePerksInfo('Last Selection: ' .. targetName .. ' | Perks: ' .. (#perks > 0 and table.concat(perks, ', ') or 'None'))
                         availableContracts = {}
                     else
-                        updateStatus(
-                            '❌ SELECTION FAILED: ' .. tostring(errorMsg)
-                        )
+                        updateStatus('❌ SELECTION FAILED: ' .. tostring(errorMsg))
                     end
                 else
-                    updateStatus(
-                        '⏳ No valid targets in '
-                            .. MAX_DISTANCE
-                            .. ' studs range'
-                    )
+                    updateStatus('⏳ No valid targets in ' .. MAX_DISTANCE .. ' studs range')
                 end
             end
         end)
@@ -465,17 +415,12 @@ end
 
 -- Toggle GUI visibility
 local function toggleGUI()
+    if not gui then return end
     gui.Enabled = not gui.Enabled
     if gui.Enabled then
-        updateStatus(
-            '📱 GUI Visible | Script: '
-                .. (isScriptEnabled and 'ENABLED' or 'DISABLED')
-        )
+        updateStatus('📱 GUI Visible | Script: ' .. (isScriptEnabled and 'ENABLED' or 'DISABLED'))
     else
-        print(
-            '🎯 GUI Hidden - Press Home to show | Script: '
-                .. (isScriptEnabled and 'ENABLED' or 'DISABLED')
-        )
+        print('🎯 GUI Hidden - Press Home to show | Script: ' .. (isScriptEnabled and 'ENABLED' or 'DISABLED'))
     end
 end
 
@@ -496,34 +441,77 @@ local function setupKeybinds()
     updateStatus('🔑 Keybinds: Home=GUI, PageDown=Script')
 end
 
+-- Request initial contracts
+local function requestInitialContracts()
+    updateStatus('📋 Requesting initial contracts...')
+    
+    local remoteFolder = ReplicatedStorage:WaitForChild('rbxts_include'):WaitForChild('node_modules'):WaitForChild('@rbxts'):WaitForChild('net'):WaitForChild('out'):WaitForChild('_NetManaged')
+    
+    -- Try to trigger contract detection
+    local detectRemote = remoteFolder:FindFirstChild('BloodAssassinDisdetectContract')
+    if detectRemote then
+        pcall(function()
+            detectRemote:FireServer({})
+        end)
+    end
+    
+    -- Try to request available contracts
+    local availableRemote = remoteFolder:FindFirstChild('BloodAssassinUpdateAvailableContracts')
+    if availableRemote then
+        pcall(function()
+            availableRemote:FireServer({request = true})
+        end)
+    end
+end
+
+-- Handle respawning
+local function setupRespawnHandler()
+    local localPlayer = Players.LocalPlayer
+    
+    localPlayer.CharacterAdded:Connect(function(character)
+        wait(2) -- Wait for character to fully load
+        updateStatus('🔄 Player respawned - Reactivating script...')
+        
+        -- Recreate GUI if needed
+        if not gui or not gui.Parent then
+            statusFrame, statusText, perksText, buttonFrame = createGUI()
+        end
+        
+        -- Restart scanning
+        if isScriptEnabled and not isScanning then
+            startContinuousScan()
+        end
+        
+        -- Request contracts again after respawn
+        wait(3)
+        requestInitialContracts()
+    end)
+    
+    localPlayer.CharacterRemoving:Connect(function()
+        updateStatus('💀 Player died - Will resume after respawn...')
+        stopContinuousScan()
+    end)
+end
+
 -- Main function
 local function smartContractHunter()
+    -- Wait for game to load first
+    waitForGameLoad()
+    
     updateStatus('Starting enhanced contract hunter...')
     updateStatus('Range: ' .. MAX_DISTANCE .. ' studs | Perk Priority Enabled')
-    updatePerksInfo(
-        'Perk Priority: Dark Insight (100) > Serrated Blade (90) > Vulnerable (80) > Silence (70) > Bounty (60)'
-    )
+    updatePerksInfo('Perk Priority: Dark Insight (100) > Serrated Blade (90) > Vulnerable (80) > Silence (70) > Bounty (60)')
 
     local success, errorMsg = pcall(function()
-        local remoteFolder = ReplicatedStorage:WaitForChild('rbxts_include')
-            :WaitForChild('node_modules')
-            :WaitForChild('@rbxts')
-            :WaitForChild('net')
-            :WaitForChild('out')
-            :WaitForChild('_NetManaged')
+        local remoteFolder = ReplicatedStorage:WaitForChild('rbxts_include'):WaitForChild('node_modules'):WaitForChild('@rbxts'):WaitForChild('net'):WaitForChild('out'):WaitForChild('_NetManaged')
 
         -- Hook BloodAssassinUpdateAvailableContracts to store contracts
-        local availableContractsRemote =
-            remoteFolder:WaitForChild('BloodAssassinUpdateAvailableContracts')
+        local availableContractsRemote = remoteFolder:WaitForChild('BloodAssassinUpdateAvailableContracts')
         if availableContractsRemote then
             availableContractsRemote.OnClientEvent:Connect(function(args)
                 pcall(function()
                     if args and args.contracts and #args.contracts > 0 then
-                        updateStatus(
-                            '📋 '
-                                .. #args.contracts
-                                .. ' new contracts received!'
-                        )
+                        updateStatus('📋 ' .. #args.contracts .. ' new contracts received!')
 
                         -- Store all contracts for continuous scanning
                         availableContracts = args.contracts
@@ -532,39 +520,17 @@ local function smartContractHunter()
                         print('📋 STORED CONTRACTS WITH PERKS:')
                         for i, contract in ipairs(availableContracts) do
                             local perks = detectPerks(contract)
-                            local perkText = #perks > 0
-                                    and ' [PERKS: ' .. table.concat(perks, ', ') .. ']'
-                                or ''
-                            print(
-                                '   '
-                                    .. i
-                                    .. ': ID='
-                                    .. tostring(contract.id)
-                                    .. ', Target='
-                                    .. tostring(contract.target)
-                                    .. perkText
-                            )
+                            local perkText = #perks > 0 and ' [PERKS: ' .. table.concat(perks, ', ') .. ']' or ''
+                            print('   ' .. i .. ': ID=' .. tostring(contract.id) .. ', Target=' .. tostring(contract.target) .. perkText)
                         end
 
                         -- Immediately check if any are valid
-                        local bestContract, distance, targetName, perks =
-                            findBestContract()
+                        local bestContract, distance, targetName, perks = findBestContract()
                         if bestContract then
-                            local perkText = #perks > 0
-                                    and ' with perks: ' .. table.concat(
-                                        perks,
-                                        ', '
-                                    )
-                                or ''
-                            updateStatus(
-                                '🎯 IMMEDIATE MATCH: '
-                                    .. targetName
-                                    .. perkText
-                            )
+                            local perkText = #perks > 0 and ' with perks: ' .. table.concat(perks, ', ') or ''
+                            updateStatus('🎯 IMMEDIATE MATCH: ' .. targetName .. perkText)
                         else
-                            updateStatus(
-                                '⏳ No immediate matches - continuous scanning...'
-                            )
+                            updateStatus('⏳ No immediate matches - continuous scanning...')
                         end
                     else
                         updateStatus('📭 No contracts available')
@@ -576,8 +542,7 @@ local function smartContractHunter()
         end
 
         -- Monitor active contracts
-        local setActiveRemote =
-            remoteFolder:WaitForChild('BloodAssassinSetActiveContract')
+        local setActiveRemote = remoteFolder:WaitForChild('BloodAssassinSetActiveContract')
         if setActiveRemote then
             setActiveRemote.OnClientEvent:Connect(function(args)
                 pcall(function()
@@ -585,10 +550,7 @@ local function smartContractHunter()
                         local targetInfo = args.activeContract.target
                         local targetName = 'Unknown'
 
-                        if
-                            typeof(targetInfo) == 'Instance'
-                            and targetInfo:IsA('Player')
-                        then
+                        if typeof(targetInfo) == 'Instance' and targetInfo:IsA('Player') then
                             targetName = targetInfo.Name
                         else
                             targetName = tostring(targetInfo)
@@ -605,6 +567,9 @@ local function smartContractHunter()
             end)
         end
 
+        -- Set up respawn handler
+        setupRespawnHandler()
+        
         -- Set up keybinds
         setupKeybinds()
 
@@ -612,20 +577,18 @@ local function smartContractHunter()
         startContinuousScan()
 
         updateStatus('🤖 Ready! Contracts will auto-select when in range.')
-        updateStatus(
-            '🔑 Press Home to show/hide GUI | PageDown to toggle script'
-        )
+        updateStatus('🔑 Press Home to show/hide GUI | PageDown to toggle script')
 
+        -- Request initial contracts after a delay
+        wait(3)
+        requestInitialContracts()
+        
         -- Auto-open menu after delay
         wait(5)
         if isScriptEnabled then
             updateStatus('🎯 Auto-opening menu...')
 
-            local abilityRemote = ReplicatedStorage
-                :WaitForChild(
-                    'events-@easy-games/game-core:shared/game-core-networking@getEvents.Events'
-                )
-                :WaitForChild('useAbility')
+            local abilityRemote = ReplicatedStorage:WaitForChild('events-@easy-games/game-core:shared/game-core-networking@getEvents.Events'):WaitForChild('useAbility')
 
             local openSuccess, openError = pcall(function()
                 abilityRemote:FireServer('BLOOD_ASSASSIN_MENU')
@@ -647,11 +610,7 @@ end
 -- Buttons
 createButton('Open Menu', UDim2.new(0, 10, 0, 5), function()
     pcall(function()
-        local abilityRemote = ReplicatedStorage
-            :WaitForChild(
-                'events-@easy-games/game-core:shared/game-core-networking@getEvents.Events'
-            )
-            :WaitForChild('useAbility')
+        local abilityRemote = ReplicatedStorage:WaitForChild('events-@easy-games/game-core:shared/game-core-networking@getEvents.Events'):WaitForChild('useAbility')
         abilityRemote:FireServer('BLOOD_ASSASSIN_MENU')
         updateStatus('📋 Menu opened')
     end)
@@ -662,17 +621,8 @@ createButton('Rescan', UDim2.new(0, 140, 0, 5), function()
         updateStatus('🔄 Manual rescan...')
         local bestContract, distance, targetName, perks = findBestContract()
         if bestContract then
-            local perkText = #perks > 0
-                    and ' with perks: ' .. table.concat(perks, ', ')
-                or ''
-            updateStatus(
-                '🎯 Found: '
-                    .. targetName
-                    .. ' ('
-                    .. math.floor(distance)
-                    .. ' studs)'
-                    .. perkText
-            )
+            local perkText = #perks > 0 and ' with perks: ' .. table.concat(perks, ', ') or ''
+            updateStatus('🎯 Found: ' .. targetName .. ' (' .. math.floor(distance) .. ' studs)' .. perkText)
         else
             updateStatus('❌ No valid targets')
         end
@@ -688,4 +638,5 @@ createButton('Hide GUI', UDim2.new(1, -130, 0, 5), function()
 end)
 
 -- Start with error handling
+waitForGameLoad()
 pcall(smartContractHunter)

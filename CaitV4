@@ -1,5 +1,5 @@
-if _G.ReachScriptLoaded then return end
-_G.ReachScriptLoaded = true
+if _G.BloodAssassinScriptLoaded then return end
+_G.BloodAssassinScriptLoaded = true
 
 -- Quick executor check (basic protection)
 if not (syn or protect_gui or get_hidden_ui or is_sirhurt_closure or crypt) then

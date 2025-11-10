@@ -1,18 +1,3 @@
-if _G.BloodAssassinScriptLoaded then return end
-_G.BloodAssassinScriptLoaded = true
-
--- Quick executor check (basic protection)
-if not (syn or protect_gui or get_hidden_ui or is_sirhurt_closure or crypt) then
-    return
-end
-
-if type(queue_on_teleport) == "function" then
-    queue_on_teleport([[
-        if not (syn or protect_gui) then return end
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/HiddenUserAnomaly/Hidden/main/Reach.lua"))()
-    ]])
-end
-
 local Players = game:GetService('Players')
 local ReplicatedStorage = game:GetService('ReplicatedStorage')
 local Workspace = game:GetService('Workspace')

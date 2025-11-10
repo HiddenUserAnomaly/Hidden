@@ -262,7 +262,7 @@ end
 -- FIXED Reach Configuration - No hidden +2 studs
 local Reach = {
     Enabled = true,
-    Range = 14.90, -- Default set to 15.90
+    Range = 15, -- Default set to 14.90
     OriginalRaycastDistance = 14.4,
     CachedConstants = nil,
     CachedClient = nil,
@@ -520,7 +520,7 @@ local function CreateGUI()
     RangeTextbox.Text = tostring(Reach.Range)
     RangeTextbox.Font = Enum.Font.Gotham
     RangeTextbox.TextSize = 12
-    RangeTextbox.PlaceholderText = "14.90"
+    RangeTextbox.PlaceholderText = "15"
     RangeTextbox.Parent = MainFrame
 
     local TextboxCorner = Instance_new("UICorner")

@@ -259,29 +259,27 @@ entitylib.start = function()
     entitylib.Running = true
 end
 
--- FIXED Reach Configuration - No hidden +2 studs
+-- FIXED Reach Configuration - Removed problematic cooldowns and validation
 local Reach = {
     Enabled = true,
-    Range = 15, -- Default set to 14.90
+    Range = 15, -- Actual reach distance
     OriginalRaycastDistance = 14.4,
     CachedConstants = nil,
     CachedClient = nil,
-    LastAppliedRange = nil,
-    LastHitTime = 0,
-    HitCooldown = 0.15
+    LastAppliedRange = nil
 }
 
-local BASE_DISTANCE = 14.399
-local MIN_RANGE = 14.4  -- Minimum is now normal reach
+local BASE_DISTANCE = 14.4
+local MIN_RANGE = 14.4
 local MAX_RANGE = 18.0
 
--- FIXED: Clean reach extension calculation
+-- SIMPLIFIED: Clean reach extension without cooldowns
 local function calculateReachExtension(selfpos, targetpos, currentDistance, maxRange)
     if currentDistance <= BASE_DISTANCE then 
         return selfpos -- No extension needed
     end
     
-    -- Calculate how much we need to extend
+    -- Simple extension calculation
     local direction = (targetpos - selfpos).Unit
     local extensionAmount = math_max(currentDistance - BASE_DISTANCE, 0)
     
@@ -289,7 +287,7 @@ local function calculateReachExtension(selfpos, targetpos, currentDistance, maxR
     return selfpos + (direction * extensionAmount)
 end
 
--- FIXED: Simplified reach setup
+-- FIXED: Simplified reach setup without delays
 local function SetupReach()
     if Reach.CachedClient then return true end
     
@@ -326,30 +324,17 @@ local function SetupReach()
                         return originalSend(call, attackTable, ...)
                     end
                     
-                    local currentTime = tick()
-                    
-                    -- Basic cooldown to prevent spam
-                    if currentTime - Reach.LastHitTime < Reach.HitCooldown then
-                        return originalSend(call, attackTable, ...)
-                    end
-                    
                     local validate = attackTable.validate
                     local selfpos = validate.selfPosition.value
                     local targetpos = validate.targetPosition.value
                     local distance = (selfpos - targetpos).Magnitude
                     
-                    -- FIXED: Simple range validation - GUI value is actual reach
-                    if distance > Reach.Range then
-                        -- Block hits beyond our configured range
-                        return nil
-                    end
-                    
                     -- Only extend if beyond normal range but within our reach
-                    if distance > BASE_DISTANCE then
+                    if distance > BASE_DISTANCE and distance <= Reach.Range then
                         validate.selfPosition.value = calculateReachExtension(selfpos, targetpos, distance, Reach.Range)
                     end
                     
-                    Reach.LastHitTime = currentTime
+                    -- REMOVED: All cooldowns and timing logic
                     return originalSend(call, attackTable, ...)
                 end
             }
@@ -362,7 +347,7 @@ local function SetupReach()
     return true
 end
 
--- FIXED: No more +2 studs added
+-- FIXED: Apply reach without delays
 local function ApplyReach()
     if not Reach.CachedConstants then
         local success, constants = pcall(function() 
@@ -375,7 +360,7 @@ local function ApplyReach()
         end
     end
     
-    -- FIXED: GUI value is now the actual reach distance
+    -- Apply the reach distance directly
     local newDistance = Reach.Enabled and Reach.Range or Reach.OriginalRaycastDistance
     
     if not Reach.LastAppliedRange or math.abs(Reach.LastAppliedRange - newDistance) > 0.01 then
@@ -390,13 +375,9 @@ local function ToggleReach()
     Reach.Enabled = not Reach.Enabled
     
     if Reach.CachedConstants then
-        -- FIXED: No more +2 studs
         Reach.CachedConstants.RAYCAST_SWORD_CHARACTER_DISTANCE = Reach.Enabled and Reach.Range or Reach.OriginalRaycastDistance
         Reach.LastAppliedRange = nil
     end
-    
-    -- Reset cooldowns on toggle
-    Reach.LastHitTime = 0
     
     task_defer(function()
         if ScreenGui then

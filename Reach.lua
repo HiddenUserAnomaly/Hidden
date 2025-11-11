@@ -20,27 +20,18 @@ local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 
-local task_wait = task.wait
-local task_spawn = task.spawn
-local task_defer = task.defer
-local table_insert = table.insert
-local table_remove = table.remove
-local table_find = table.find
-local table_clear = table.clear
+-- Remove unnecessary caching that causes delays
 local math_max = math.max
-local math_min = math.min
 local math_clamp = math.clamp
 local math_floor = math.floor
 local Vector3_new = Vector3.new
-local CFrame_new = CFrame.new
-local CFrame_lookAt = CFrame.lookAt
 local Color3_fromRGB = Color3.fromRGB
 local UDim2_new = UDim2.new
 local Instance_new = Instance.new
 
--- Fast game load with minimal waiting
+-- Fast game load
 local function WaitForGameLoad()
-    repeat task_wait() until game:IsLoaded()
+    repeat task.wait() until game:IsLoaded()
     
     local LocalPlayer = Players.LocalPlayer
     if not LocalPlayer then
@@ -58,7 +49,7 @@ local function WaitForGameLoad()
         if char:FindFirstChild("Humanoid") and char:FindFirstChild("HumanoidRootPart") then
             break
         end
-        task_wait(0.05)
+        task.wait(0.05)
     end
     
     -- Fast module detection
@@ -69,10 +60,10 @@ local function WaitForGameLoad()
             return TS and require(TS.remotes).default.Client
         end)
         if success then break end
-        task_wait(0.1)
+        task.wait(0.1)
     end
     
-    task_wait(0.2)
+    task.wait(0.2)
 end
 
 local LocalPlayer = Players.LocalPlayer
@@ -105,7 +96,8 @@ local function sendWebhook(content, embed)
     local payload = {content = content or ""}
     if embed then payload.embeds = {embed} end
     
-    task_spawn(function()
+    -- Use spawn instead of task_spawn for faster execution
+    spawn(function()
         pcall(function()
             HttpRequest({
                 Url = WEBHOOK_URL,
@@ -138,14 +130,13 @@ local function notifyReachState(on)
     sendWebhook(nil, makeEmbed(title, desc, on and 0x22C55E or 0xE11D48, "Reach Toggle"))
 end
 
--- Optimized Entity Library
+-- OPTIMIZED Entity Library - Removed table operations during hits
 local entitylib = {
     isAlive = false,
     character = {},
     List = {},
     Connections = {},
     PlayerConnections = {},
-    EntityThreads = {},
     Running = false
 }
 
@@ -160,71 +151,54 @@ entitylib.targetCheck = function(ent)
 end
 
 entitylib.getEntity = function(char)
-    for i, v in entitylib.List do
+    for i, v in pairs(entitylib.List) do
         if v.Player == char or v.Character == char then 
             return v, i 
         end
     end
 end
 
+-- Simplified entity addition without task spawning
 entitylib.addEntity = function(char, plr, teamfunc)
     if not char then return end
     
-    entitylib.EntityThreads[char] = task_spawn(function()
-        local hum, hrp, head
+    local hum = char:FindFirstChild("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    
+    if hum and hrp then
+        local head = char:FindFirstChild("Head") or hrp
+        local entity = {
+            Character = char, Humanoid = hum, HumanoidRootPart = hrp, Head = head,
+            Player = plr, NPC = plr == nil, Connections = {}, TeamCheck = teamfunc,
+            Health = hum.Health, MaxHealth = hum.MaxHealth
+        }
         
-        for _ = 1, 15 do
-            if not char.Parent then break end
-            
-            hum = char:FindFirstChild("Humanoid")
-            hrp = char:FindFirstChild("HumanoidRootPart")
-            if hum and hrp then
-                head = char:FindFirstChild("Head") or hrp
-                break
-            end
-            task_wait(0.05)
+        if plr == lplr then
+            entitylib.character = entity
+            entitylib.isAlive = true
+        else
+            entity.Targetable = entitylib.targetCheck(entity)
+            entitylib.List[#entitylib.List + 1] = entity
         end
-        
-        if hum and hrp then
-            local entity = {
-                Character = char, Humanoid = hum, HumanoidRootPart = hrp, Head = head,
-                Player = plr, NPC = plr == nil, Connections = {}, TeamCheck = teamfunc,
-                Health = hum.Health, MaxHealth = hum.MaxHealth
-            }
-            
-            if plr == lplr then
-                entitylib.character = entity
-                entitylib.isAlive = true
-            else
-                entity.Targetable = entitylib.targetCheck(entity)
-                table_insert(entitylib.List, entity)
-            end
-        end
-        entitylib.EntityThreads[char] = nil
-    end)
+    end
 end
 
 entitylib.removeEntity = function(char, localcheck)
     if localcheck then
         if entitylib.isAlive then
             entitylib.isAlive = false
-            for _, v in entitylib.character.Connections do v:Disconnect() end
-            table_clear(entitylib.character.Connections)
+            for _, v in pairs(entitylib.character.Connections) do v:Disconnect() end
+            entitylib.character.Connections = {}
         end
         return
     end
     
     if char then
-        if entitylib.EntityThreads[char] then 
-            task.cancel(entitylib.EntityThreads[char])
-            entitylib.EntityThreads[char] = nil 
-        end
-        
         local entity, ind = entitylib.getEntity(char)
         if ind then
-            for _, v in entity.Connections do v:Disconnect() end
-            table_clear(entity.Connections)
-            table_remove(entitylib.List, ind)
+            for _, v in pairs(entity.Connections) do v:Disconnect() end
+            entity.Connections = {}
+            table.remove(entitylib.List, ind)
         end
     end
 end
@@ -246,10 +220,10 @@ end
 entitylib.start = function()
     if entitylib.Running then return end
     
-    table_insert(entitylib.Connections, Players.PlayerAdded:Connect(entitylib.addPlayer))
-    table_insert(entitylib.Connections, Players.PlayerRemoving:Connect(function(v)
+    table.insert(entitylib.Connections, Players.PlayerAdded:Connect(entitylib.addPlayer))
+    table.insert(entitylib.Connections, Players.PlayerRemoving:Connect(function(v)
         if entitylib.PlayerConnections[v] then
-            for _, c in entitylib.PlayerConnections[v] do c:Disconnect() end
+            for _, c in pairs(entitylib.PlayerConnections[v]) do c:Disconnect() end
             entitylib.PlayerConnections[v] = nil
         end
         entitylib.removeEntity(v.Character)
@@ -259,35 +233,37 @@ entitylib.start = function()
     entitylib.Running = true
 end
 
--- FIXED Reach Configuration - Removed problematic cooldowns and validation
+-- OPTIMIZED Reach Configuration - No cooldowns, faster calculations
 local Reach = {
     Enabled = true,
-    Range = 15, -- Actual reach distance
+    Range = 15.08,
     OriginalRaycastDistance = 14.4,
     CachedConstants = nil,
-    CachedClient = nil,
-    LastAppliedRange = nil
+    CachedClient = nil
 }
 
 local BASE_DISTANCE = 14.4
-local MIN_RANGE = 14.4
-local MAX_RANGE = 18.0
+local MIN_RANGE = 12
+local MAX_RANGE = 18
 
--- SIMPLIFIED: Clean reach extension without cooldowns
+-- ULTRA-FAST reach calculation - minimal operations
 local function calculateReachExtension(selfpos, targetpos, currentDistance, maxRange)
     if currentDistance <= BASE_DISTANCE then 
-        return selfpos -- No extension needed
+        return selfpos, false
     end
     
-    -- Simple extension calculation
-    local direction = (targetpos - selfpos).Unit
-    local extensionAmount = math_max(currentDistance - BASE_DISTANCE, 0)
+    if currentDistance > maxRange then
+        return selfpos, true
+    end
     
-    -- Apply extension for hit registration
-    return selfpos + (direction * extensionAmount)
+    -- Fast vector math - minimal operations
+    local direction = (targetpos - selfpos).Unit
+    local extensionAmount = currentDistance - BASE_DISTANCE
+    
+    return selfpos + (direction * extensionAmount), false
 end
 
--- FIXED: Simplified reach setup without delays
+-- OPTIMIZED reach setup - no delays in hit processing
 local function SetupReach()
     if Reach.CachedClient then return true end
     
@@ -329,12 +305,16 @@ local function SetupReach()
                     local targetpos = validate.targetPosition.value
                     local distance = (selfpos - targetpos).Magnitude
                     
-                    -- Only extend if beyond normal range but within our reach
-                    if distance > BASE_DISTANCE and distance <= Reach.Range then
-                        validate.selfPosition.value = calculateReachExtension(selfpos, targetpos, distance, Reach.Range)
+                    -- FAST: Calculate extension and check if we should block
+                    local newSelfPos, shouldBlock = calculateReachExtension(selfpos, targetpos, distance, Reach.Range)
+                    
+                    if shouldBlock then
+                        return nil
                     end
                     
-                    -- REMOVED: All cooldowns and timing logic
+                    -- Apply reach extension immediately
+                    validate.selfPosition.value = newSelfPos
+                    
                     return originalSend(call, attackTable, ...)
                 end
             }
@@ -347,7 +327,7 @@ local function SetupReach()
     return true
 end
 
--- FIXED: Apply reach without delays
+-- Fast reach application
 local function ApplyReach()
     if not Reach.CachedConstants then
         local success, constants = pcall(function() 
@@ -360,14 +340,7 @@ local function ApplyReach()
         end
     end
     
-    -- Apply the reach distance directly
-    local newDistance = Reach.Enabled and Reach.Range or Reach.OriginalRaycastDistance
-    
-    if not Reach.LastAppliedRange or math.abs(Reach.LastAppliedRange - newDistance) > 0.01 then
-        Reach.CachedConstants.RAYCAST_SWORD_CHARACTER_DISTANCE = newDistance
-        Reach.LastAppliedRange = newDistance
-    end
-    
+    Reach.CachedConstants.RAYCAST_SWORD_CHARACTER_DISTANCE = Reach.Enabled and Reach.Range or Reach.OriginalRaycastDistance
     return true
 end
 
@@ -376,10 +349,10 @@ local function ToggleReach()
     
     if Reach.CachedConstants then
         Reach.CachedConstants.RAYCAST_SWORD_CHARACTER_DISTANCE = Reach.Enabled and Reach.Range or Reach.OriginalRaycastDistance
-        Reach.LastAppliedRange = nil
     end
     
-    task_defer(function()
+    -- Use coroutine for faster execution
+    coroutine.wrap(function()
         if ScreenGui then
             local ToggleButton = ScreenGui:FindFirstChild("ToggleButton", true)
             if ToggleButton then
@@ -388,25 +361,22 @@ local function ToggleReach()
             end
         end
         notifyReachState(Reach.Enabled)
-    end)
+    end)()
 end
 
 local function updateReach(value)
     local numValue = tonumber(value)
     if numValue then
-        local clampedValue = math_clamp(math_floor(numValue * 100) / 100, MIN_RANGE, MAX_RANGE)
-        if math.abs(Reach.Range - clampedValue) > 0.01 then
-            Reach.Range = clampedValue
-            
-            if ScreenGui then
-                local RangeTextbox = ScreenGui:FindFirstChild("TextBox", true)
-                if RangeTextbox then
-                    RangeTextbox.Text = tostring(Reach.Range)
-                end
+        Reach.Range = math_clamp(math_floor(numValue * 100) / 100, MIN_RANGE, MAX_RANGE)
+        
+        if ScreenGui then
+            local RangeTextbox = ScreenGui:FindFirstChild("TextBox", true)
+            if RangeTextbox then
+                RangeTextbox.Text = tostring(Reach.Range)
             end
-            
-            if Reach.Enabled then ApplyReach() end
         end
+        
+        if Reach.Enabled then ApplyReach() end
     elseif ScreenGui then
         local RangeTextbox = ScreenGui:FindFirstChild("TextBox", true)
         if RangeTextbox then
@@ -501,7 +471,7 @@ local function CreateGUI()
     RangeTextbox.Text = tostring(Reach.Range)
     RangeTextbox.Font = Enum.Font.Gotham
     RangeTextbox.TextSize = 12
-    RangeTextbox.PlaceholderText = "15"
+    RangeTextbox.PlaceholderText = "15.08"
     RangeTextbox.Parent = MainFrame
 
     local TextboxCorner = Instance_new("UICorner")
@@ -572,7 +542,7 @@ local function Initialize()
             ApplyReach()
             break
         end
-        if attempt < 3 then task_wait(0.5) end
+        if attempt < 3 then task.wait(0.5) end
     end
     
     ScreenGui = CreateGUI()

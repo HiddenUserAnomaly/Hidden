@@ -1,7 +1,6 @@
 if _G.ReachScriptLoaded then return end
 _G.ReachScriptLoaded = true
 
-
 if not (syn or protect_gui or get_hidden_ui or is_sirhurt_closure or crypt) then
     return
 end
@@ -13,7 +12,6 @@ if type(queue_on_teleport) == "function" then
     ]])
 end
 
-
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
@@ -23,7 +21,6 @@ local HttpService = game:GetService("HttpService")
 local math_random = math.random
 local math_floor = math.floor
 local Vector3_new = Vector3.new
-
 
 local function WaitForGameLoad()
     repeat task.wait() until game:IsLoaded() and Players.LocalPlayer
@@ -43,6 +40,109 @@ end
 
 local LocalPlayer = Players.LocalPlayer
 
+-- ========== OPTIMIZED ENTITY LIBRARY ==========
+local entitylib = {
+    isAlive = false,
+    character = {},
+    List = {},
+    Connections = {},
+    PlayerConnections = {},
+    Running = false
+}
+
+local lplr = LocalPlayer
+
+entitylib.targetCheck = function(ent)
+    if ent.TeamCheck then return ent:TeamCheck() end
+    if ent.NPC then return true end
+    local myTeam, theirTeam = lplr.Team, ent.Player and ent.Player.Team
+    if not myTeam or not theirTeam then return true end
+    return myTeam ~= theirTeam
+end
+
+entitylib.getEntity = function(char)
+    for i, v in pairs(entitylib.List) do
+        if v.Player == char or v.Character == char then 
+            return v, i 
+        end
+    end
+end
+
+-- Simplified entity addition
+entitylib.addEntity = function(char, plr, teamfunc)
+    if not char then return end
+    
+    local hum = char:FindFirstChild("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    
+    if hum and hrp then
+        local head = char:FindFirstChild("Head") or hrp
+        local entity = {
+            Character = char, Humanoid = hum, HumanoidRootPart = hrp, Head = head,
+            Player = plr, NPC = plr == nil, Connections = {}, TeamCheck = teamfunc,
+            Health = hum.Health, MaxHealth = hum.MaxHealth
+        }
+        
+        if plr == lplr then
+            entitylib.character = entity
+            entitylib.isAlive = true
+        else
+            entity.Targetable = entitylib.targetCheck(entity)
+            entitylib.List[#entitylib.List + 1] = entity
+        end
+    end
+end
+
+entitylib.removeEntity = function(char, localcheck)
+    if localcheck then
+        if entitylib.isAlive then
+            entitylib.isAlive = false
+            for _, v in pairs(entitylib.character.Connections) do v:Disconnect() end
+            entitylib.character.Connections = {}
+        end
+        return
+    end
+    
+    if char then
+        local entity, ind = entitylib.getEntity(char)
+        if ind then
+            for _, v in pairs(entity.Connections) do v:Disconnect() end
+            entity.Connections = {}
+            table.remove(entitylib.List, ind)
+        end
+    end
+end
+
+entitylib.refreshEntity = function(char, plr)
+    entitylib.removeEntity(char)
+    entitylib.addEntity(char, plr)
+end
+
+entitylib.addPlayer = function(plr)
+    if plr.Character then entitylib.refreshEntity(plr.Character, plr) end
+    
+    entitylib.PlayerConnections[plr] = {
+        plr.CharacterAdded:Connect(function(c) entitylib.refreshEntity(c, plr) end),
+        plr.CharacterRemoving:Connect(function(c) entitylib.removeEntity(c, plr == lplr) end)
+    }
+end
+
+entitylib.start = function()
+    if entitylib.Running then return end
+    
+    table.insert(entitylib.Connections, Players.PlayerAdded:Connect(entitylib.addPlayer))
+    table.insert(entitylib.Connections, Players.PlayerRemoving:Connect(function(v)
+        if entitylib.PlayerConnections[v] then
+            for _, c in pairs(entitylib.PlayerConnections[v]) do c:Disconnect() end
+            entitylib.PlayerConnections[v] = nil
+        end
+        entitylib.removeEntity(v.Character)
+    end))
+    
+    for _, v in Players:GetPlayers() do entitylib.addPlayer(v) end
+    entitylib.Running = true
+end
+-- ========== END ENTITY LIBRARY ==========
 
 local Reach = {
     Enabled = true,
@@ -52,9 +152,6 @@ local Reach = {
     CachedConstants = nil,
     CachedClient = nil
 }
-
-
-local BASE_DISTANCE_SQ = Reach.BaseDistance * Reach.BaseDistance
 
 -- Fast random reach calculation with pre-computation
 local lastRandomExtension = 0
@@ -70,41 +167,27 @@ local function GetDynamicReach()
     return Reach.BaseDistance + lastRandomExtension
 end
 
-
+-- FIXED reach calculation - properly extends reach
 local function calculateReachExtension(selfpos, targetpos, currentDistance)
-    
-    local currentDistanceSq = currentDistance * currentDistance
-    
-    if currentDistanceSq <= BASE_DISTANCE_SQ then 
+    if currentDistance <= Reach.BaseDistance then 
         return selfpos, false
     end
     
     local dynamicReach = GetDynamicReach()
     
-    if currentDistance > dynamicReach then
-        return selfpos, true
-    end
+    -- Always extend, but cap at maximum reach
+    local extensionAmount = math.min(currentDistance - Reach.BaseDistance, dynamicReach - Reach.BaseDistance)
     
+    local dx, dy, dz = targetpos.X - selfpos.X, targetpos.Y - selfpos.Y, targetpos.Z - selfpos.Z
+    local invMagnitude = 1 / currentDistance
     
-    local deltaX = targetpos.X - selfpos.X
-    local deltaY = targetpos.Y - selfpos.Y
-    local deltaZ = targetpos.Z - selfpos.Z
-    
-   
-    local magnitude = currentDistance
-    local invMagnitude = 1 / magnitude
-    
-    local extensionAmount = currentDistance - Reach.BaseDistance
-    local scaledExtension = extensionAmount * invMagnitude
-    
-    -- Create final position in one operation
+    -- CORRECT: Normalize direction first, then apply extension
     return Vector3_new(
-        selfpos.X + deltaX * scaledExtension,
-        selfpos.Y + deltaY * scaledExtension,
-        selfpos.Z + deltaZ * scaledExtension
+        selfpos.X + (dx * invMagnitude) * extensionAmount,
+        selfpos.Y + (dy * invMagnitude) * extensionAmount,
+        selfpos.Z + (dz * invMagnitude) * extensionAmount
     ), false
 end
-
 
 local function SetupReach()
     if Reach.CachedClient then return true end
@@ -151,7 +234,6 @@ local function SetupReach()
                     local delta = targetpos - selfpos
                     local distance = delta.Magnitude
                     
-                    
                     local newSelfPos, shouldBlock = calculateReachExtension(selfpos, targetpos, distance)
                     
                     if shouldBlock then
@@ -173,7 +255,6 @@ local function SetupReach()
     return true
 end
 
-
 local function ApplyReach()
     if not Reach.CachedConstants then
         local success, constants = pcall(function() 
@@ -186,7 +267,6 @@ local function ApplyReach()
         end
     end
     
-
     Reach.CachedConstants.RAYCAST_SWORD_CHARACTER_DISTANCE = Reach.Enabled and GetDynamicReach() or Reach.BaseDistance
     return true
 end
@@ -219,7 +299,6 @@ local function sendWebhook(content, embed)
     local payload = {content = content or ""}
     if embed then payload.embeds = {embed} end
     
-    -- Use coroutine for faster execution
     coroutine.wrap(function()
         pcall(function()
             HttpRequest({
@@ -342,14 +421,13 @@ local function SetupKeybinds()
     end)
 end
 
-
 local function Initialize()
     local success = pcall(WaitForGameLoad)
     if not success then return end
     
     notifyExecuted()
+    entitylib.start() -- Start entity tracking
     
-
     if SetupReach() then
         ApplyReach()
     end
